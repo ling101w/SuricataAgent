@@ -1435,7 +1435,8 @@ a:focus-visible {
 }
 
 .candidate-badge.is-pass,
-.candidate-badge.is-selected {
+.candidate-badge.is-selected,
+.candidate-badge.is-delivered {
   background: var(--teal-soft);
   color: var(--teal-dark);
 }

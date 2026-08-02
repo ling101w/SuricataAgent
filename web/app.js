@@ -88,9 +88,11 @@ const eventStatusLabels = {
 const artifactLabels = {
   pcap: "PCAP",
   rules: "规则",
+  supplemental_rules: "补充规则",
   report: "报告",
   mutations: "变体诊断",
   rule_ir: "Rule IR",
+  supplemental_rule_ir: "补充 Rule IR",
   coverage: "Coverage Graph",
 };
 
@@ -956,8 +958,13 @@ function appendCandidateEvidenceRow(container, labelText, valueText, className =
 
 function candidateSidSummary(candidate, selected) {
   const values = [];
-  if (selected && candidate.final_sid != null) {
-    values.push(`交付 ${candidate.final_sid}`);
+  const supplemental = candidateIsSupplemental(candidate);
+  if (candidate.delivered && candidate.final_sid != null) {
+    values.push(
+      `${supplemental ? "补充交付" : "主规则交付"} ${candidate.final_sid}`,
+    );
+  } else if (selected && candidate.final_sid != null) {
+    values.push(`本轮编译 ${candidate.final_sid}`);
   }
   if (candidate.evaluation_sid != null) {
     values.push(`评测 ${candidate.evaluation_sid}`);
@@ -997,8 +1004,16 @@ function renderCandidate(candidate, selectedCandidate, fallbackIndex) {
   if (selected) {
     const selectedBadge = document.createElement("span");
     selectedBadge.className = "candidate-badge is-selected";
-    selectedBadge.textContent = "最终选用";
+    selectedBadge.textContent = candidate.delivered
+      ? "最终主规则"
+      : "本轮主候选";
     badges.append(selectedBadge);
+  }
+  if (supplemental && candidate.delivered) {
+    const deliveredBadge = document.createElement("span");
+    deliveredBadge.className = "candidate-badge is-delivered";
+    deliveredBadge.textContent = "补充规则已交付";
+    badges.append(deliveredBadge);
   }
   const score = document.createElement("span");
   score.className = "candidate-badge is-score";
@@ -1108,15 +1123,23 @@ function renderCandidate(candidate, selectedCandidate, fallbackIndex) {
     wrapper.append(compileError);
   }
 
-  const displayedRule = selected && candidate.final_rule
-    ? candidate.final_rule
-    : candidate.rule;
+  const displaysSupplementalDelivery = supplemental &&
+    candidate.delivered && candidate.supplemental_final_rule;
+  const displaysPrimaryDelivery = selected &&
+    candidate.delivered && candidate.final_rule;
+  const displayedRule = displaysSupplementalDelivery
+    ? candidate.supplemental_final_rule
+    : displaysPrimaryDelivery
+      ? candidate.final_rule
+      : candidate.rule;
   if (displayedRule) {
     const ruleLabel = document.createElement("div");
     ruleLabel.className = "candidate-rule-label";
-    ruleLabel.textContent = selected && candidate.final_rule
-      ? `交付规则 · SID ${candidate.final_sid ?? "—"}`
-      : `评测规则 · SID ${candidate.evaluation_sid ?? "—"}`;
+    ruleLabel.textContent = displaysSupplementalDelivery
+      ? `补充交付规则 · SID ${candidate.final_sid ?? "—"}`
+      : displaysPrimaryDelivery
+        ? `主规则交付 · SID ${candidate.final_sid ?? "—"}`
+        : `评测规则 · SID ${candidate.evaluation_sid ?? "—"}`;
     const rule = document.createElement("pre");
     rule.className = "candidate-rule";
     const code = document.createElement("code");
@@ -1243,9 +1266,11 @@ function renderAttempts(attempts = []) {
           Object.keys(candidateScopeLabels).some((scope) =>
             Array.isArray(recommendedByScope[scope]),
           );
-        const sidNamespace = graph.sid_namespace === "delivery"
-          ? "交付 SID"
-          : "评测 SID";
+        const sidNamespace = graph.sid_namespace === "delivery_mapped"
+          ? "交付映射 SID"
+          : graph.sid_namespace === "delivery"
+            ? "交付 SID"
+            : "评测 SID";
 
         const graphHeader = document.createElement("div");
         graphHeader.className = "coverage-summary-header";
