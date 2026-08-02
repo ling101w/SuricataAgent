@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Suricata Rule Lab</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">SR</div>
+        <div>
+          <h1>Suricata Rule Lab</h1>
+          <p>规则生成与流量验证</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <label class="recent-runs" for="recentRuns">
+          <span>最近任务</span>
+          <select id="recentRuns" aria-label="最近任务">
+            <option value="">暂无任务</option>
+          </select>
+        </label>
+        <div class="runtime-status" aria-label="运行环境状态">
+          <span class="runtime-item" id="suricataStatus">
+            <span class="status-dot"></span>
+            <span>Suricata 检查中</span>
+          </span>
+          <span class="runtime-item" id="modelStatus">
+            <span class="status-dot"></span>
+            <span>模型检查中</span>
+          </span>
+          <button
+            class="icon-button"
+            id="refreshRuntime"
+            type="button"
+            title="刷新运行环境"
+            aria-label="刷新运行环境"
+          >
+            <i data-lucide="refresh-cw" data-fallback="↻"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="input-pane" aria-labelledby="inputTitle">
+        <div class="pane-heading">
+          <div>
+            <p class="eyebrow">INPUT</p>
+            <h2 id="inputTitle">检测证据</h2>
+          </div>
+          <span class="save-state" id="inputState">未运行</span>
+        </div>
+
+        <div class="runtime-banner" id="runtimeBanner" hidden></div>
+
+        <form id="generationForm" novalidate>
+          <div class="field-row field-row--compact">
+            <label class="field field--grow">
+              <span>案例编号</span>
+              <input
+                id="caseId"
+                name="case_id"
+                type="text"
+                value="demo-001"
+                maxlength="80"
+                required
+              />
+            </label>
+            <label class="field field--sid">
+              <span>起始 SID</span>
+              <input
+                id="sidStart"
+                name="sid_start"
+                type="number"
+                value="123"
+                min="1"
+                max="4294967295"
+                required
+              />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>漏洞信息</span>
+            <textarea
+              id="base"
+              name="base"
+              rows="4"
+              maxlength="30000"
+              placeholder="漏洞名称、受影响版本、入口与关键特征"
+              required
+            ></textarea>
+          </label>
+
+          <label class="field">
+            <span>PoC 与利用证据</span>
+            <textarea
+              id="poc"
+              name="poc"
+              rows="5"
+              maxlength="100000"
+              placeholder="利用步骤、关键参数与稳定检测特征"
+              required
+            ></textarea>
+          </label>
+
+          <div class="http-editor">
+            <div class="tab-bar" role="tablist" aria-label="HTTP 原文">
+              <button
+                class="tab-button is-active"
+                id="requestTab"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="requestPanel"
+                data-input-tab="request"
+              >
+                请求原文
+                <span class="byte-count" id="requestBytes">0 B</span>
+              </button>
+              <button
+                class="tab-button"
+                id="responseTab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="responsePanel"
+                data-input-tab="response"
+              >
+                响应原文
+                <span class="byte-count" id="responseBytes">0 B</span>
+              </button>
+            </div>
+
+            <div
+              class="http-panel is-active"
+              id="requestPanel"
+              role="tabpanel"
+              aria-labelledby="requestTab"
+            >
+              <div class="editor-toolbar">
+                <span id="requestSource">文本输入 · 自动补全 CRLF</span>
+                <button class="quiet-button" type="button" data-import="request">
+                  <i data-lucide="file-up" data-fallback="↑"></i>
+                  导入原文
+                </button>
+                <input id="requestFile" type="file" hidden />
+              </div>
+              <textarea
+                class="raw-editor"
+                id="httpRequest"
+                name="http_request"
+                rows="13"
+                spellcheck="false"
+                placeholder="POST /api/example HTTP/1.1&#10;Host: target.local&#10;Content-Type: application/json&#10;&#10;{&quot;key&quot;:&quot;value&quot;}"
+                required
+              ></textarea>
+            </div>
+
+            <div
+              class="http-panel"
+              id="responsePanel"
+              role="tabpanel"
+              aria-labelledby="responseTab"
+              hidden
+            >
+              <div class="editor-toolbar">
+                <span id="responseSource">文本输入 · 自动补全 CRLF</span>
+                <button class="quiet-button" type="button" data-import="response">
+                  <i data-lucide="file-up" data-fallback="↑"></i>
+                  导入原文
+                </button>
+                <input id="responseFile" type="file" hidden />
+              </div>
+              <textarea
+                class="raw-editor"
+                id="httpResponse"
+                name="http_response"
+                rows="13"
+                spellcheck="false"
+                placeholder="HTTP/1.1 200 OK&#10;Content-Type: application/json&#10;&#10;{&quot;status&quot;:&quot;ok&quot;}"
+              ></textarea>
+            </div>
+          </div>
+
+          <details class="advanced-options">
+            <summary>
+              <span>验证选项</span>
+              <i data-lucide="chevron-down" data-fallback="⌄"></i>
+            </summary>
+            <div class="advanced-body">
+              <label class="field">
+                <span>最大规则尝试次数</span>
+                <input
+                  id="maxAttempts"
+                  name="max_attempts"
+                  type="number"
+                  value="3"
+                  min="1"
+                  max="5"
+                  required
+                />
+              </label>
+              <div class="field negative-field">
+                <span>反向 PCAP</span>
+                <button class="secondary-button" id="addNegativePcap" type="button">
+                  <i data-lucide="paperclip" data-fallback="+"></i>
+                  添加文件
+                </button>
+                <input
+                  id="negativePcapFiles"
+                  type="file"
+                  accept=".pcap,.pcapng,application/vnd.tcpdump.pcap"
+                  multiple
+                  hidden
+                />
+                <div class="file-list" id="negativePcapList"></div>
+              </div>
+            </div>
+          </details>
+
+          <div class="form-footer">
+            <p class="privacy-note">
+              PoC 与 HTTP 内容会发送至当前配置的模型服务。
+            </p>
+            <div class="form-actions">
+              <button class="secondary-button" id="resetForm" type="button">清空</button>
+              <button class="primary-button" id="runButton" type="submit" disabled>
+                <i data-lucide="play" data-fallback="▶"></i>
+                <span>生成并验证</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class="result-pane" aria-labelledby="resultTitle">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow">RUN</p>
+            <h2 id="resultTitle">检测任务</h2>
+          </div>
+          <div class="result-status status-idle" id="resultStatus">
+            <span class="status-dot"></span>
+            <span>等待运行</span>
+          </div>
+        </div>
+
+        <ol class="progress-track" id="progressTrack" aria-label="任务进度">
+          <li data-stage="preflight">
+            <span class="step-index">01</span>
+            <span class="step-label">环境预检</span>
+          </li>
+          <li data-stage="build_samples">
+            <span class="step-index">02</span>
+            <span class="step-label">样本矩阵</span>
+          </li>
+          <li data-stage="extract_features">
+            <span class="step-index">03</span>
+            <span class="step-label">特征提取</span>
+          </li>
+          <li data-stage="evaluate_candidates">
+            <span class="step-index">04</span>
+            <span class="step-label">候选评测</span>
+          </li>
+          <li data-stage="diagnose_failure">
+            <span class="step-index">05</span>
+            <span class="step-label">失败诊断</span>
+          </li>
+          <li data-stage="persist">
+            <span class="step-index">06</span>
+            <span class="step-label">保存产物</span>
+          </li>
+        </ol>
+
+        <div class="empty-state" id="emptyState">
+          <div class="empty-glyph" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <strong>等待生成</strong>
+          <span>RUN ID · —</span>
+        </div>
+
+        <div class="result-content" id="resultContent" hidden>
+          <div class="summary-strip">
+            <div>
+              <span>当前阶段</span>
+              <strong id="summaryStage">—</strong>
+            </div>
+            <div>
+              <span>规则尝试</span>
+              <strong id="summaryAttempt">0 / 3</strong>
+            </div>
+            <div>
+              <span>预期 SID</span>
+              <strong id="summaryExpected">—</strong>
+            </div>
+            <div>
+              <span>正向命中</span>
+              <strong id="summaryMatched">—</strong>
+            </div>
+          </div>
+
+          <div class="result-tabs" role="tablist" aria-label="任务结果">
+            <button
+              class="result-tab is-active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              data-result-tab="rules"
+            >
+              规则
+            </button>
+            <button
+              class="result-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-result-tab="validation"
+            >
+              验证结果
+            </button>
+            <button
+              class="result-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-result-tab="matrix"
+            >
+              样本矩阵
+            </button>
+            <button
+              class="result-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-result-tab="attempts"
+            >
+              尝试历史
+            </button>
+            <button
+              class="result-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-result-tab="events"
+            >
+              运行记录
+            </button>
+          </div>
+
+          <div class="result-panel is-active" id="rulesResult" data-result-panel="rules">
+            <div class="panel-toolbar">
+              <span id="ruleMeta">候选规则</span>
+              <div>
+                <button
+                  class="icon-button"
+                  id="copyRules"
+                  type="button"
+                  title="复制规则"
+                  aria-label="复制规则"
+                  disabled
+                >
+                  <i data-lucide="copy" data-fallback="□"></i>
+                </button>
+                <a
+                  class="icon-button is-disabled"
+                  id="downloadRules"
+                  title="下载规则"
+                  aria-label="下载规则"
+                >
+                  <i data-lucide="download" data-fallback="↓"></i>
+                </a>
+              </div>
+            </div>
+            <pre class="rule-output" id="ruleOutput"><code>等待模型输出…</code></pre>
+          </div>
+
+          <div class="result-panel" id="validationResult" data-result-panel="validation" hidden>
+            <div class="validation-stages" id="validationStages"></div>
+            <div class="validation-metrics" id="validationMetrics"></div>
+            <div class="sid-section" id="sidSection"></div>
+            <div class="message-stack" id="validationMessages"></div>
+            <details class="command-details" id="commandDetails" hidden>
+              <summary>Suricata 输出</summary>
+              <pre id="commandOutput"></pre>
+            </details>
+          </div>
+
+          <div class="result-panel" id="matrixResult" data-result-panel="matrix" hidden>
+            <div class="matrix-overview" id="matrixOverview"></div>
+            <div class="mutation-skips" id="mutationSkips" hidden></div>
+            <div class="sample-matrix" id="sampleMatrix"></div>
+          </div>
+
+          <div class="result-panel" id="attemptsResult" data-result-panel="attempts" hidden>
+            <div class="attempt-list" id="attemptList"></div>
+          </div>
+
+          <div class="result-panel" id="eventsResult" data-result-panel="events" hidden>
+            <div class="event-list" id="eventList"></div>
+          </div>
+
+          <div class="artifact-bar" id="artifactBar" hidden>
+            <div>
+              <span class="artifact-label">产物</span>
+              <span id="artifactCount">0 个文件</span>
+            </div>
+            <div class="artifact-actions" id="artifactActions"></div>
+          </div>
+
+          <div class="failure-banner" id="failureBanner" hidden>
+            <strong id="failureCode">任务失败</strong>
+            <span id="failureMessage"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

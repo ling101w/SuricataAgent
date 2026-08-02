@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.pytest*/
+.runtime/
+.suricata-*/
+artifacts/
+benchmark-artifacts/
+rule-library-analysis/
+.benchmark-*/
+/suricata/
+/scope-check.rules

@@ -1,0 +1,8 @@
+langchain>=1.2,<2
+langchain-openai>=1.1,<2
+langgraph>=1.1,<2
+scapy>=2.7,<3
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+python-dotenv>=1,<2
+pytest>=8,<9
