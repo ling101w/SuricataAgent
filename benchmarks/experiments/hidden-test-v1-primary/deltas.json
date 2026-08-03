@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "comparisons": [
+    {
+      "source": "direct_llm",
+      "target": "direct_repair",
+      "heldout_variant_recall": {
+        "source_percent": 50.0,
+        "target_percent": 73.333,
+        "delta_percentage_points": 23.333
+      },
+      "heldout_false_positive_rate": {
+        "source_percent": 0.0,
+        "target_percent": 6.667,
+        "delta_percentage_points": 6.667
+      },
+      "verified_rule_rate": {
+        "source_percent": 36.667,
+        "target_percent": 66.667,
+        "delta_percentage_points": 30.0
+      },
+      "syntax_pass_rate": {
+        "source_percent": 90.0,
+        "target_percent": 100.0,
+        "delta_percentage_points": 10.0
+      },
+      "original_detection_rate": {
+        "source_percent": 73.333,
+        "target_percent": 100.0,
+        "delta_percentage_points": 26.667
+      },
+      "variant_recall": {
+        "source_percent": 53.333,
+        "target_percent": 86.667,
+        "delta_percentage_points": 33.333
+      },
+      "false_positive_rate": {
+        "source_percent": 0.0,
+        "target_percent": 3.333,
+        "delta_percentage_points": 3.333
+      }
+    },
+    {
+      "source": "direct_repair",
+      "target": "semantic_intent_repair",
+      "heldout_variant_recall": {
+        "source_percent": 73.333,
+        "target_percent": 53.333,
+        "delta_percentage_points": -20.0
+      },
+      "heldout_false_positive_rate": {
+        "source_percent": 6.667,
+        "target_percent": 0.0,
+        "delta_percentage_points": -6.667
+      },
+      "verified_rule_rate": {
+        "source_percent": 66.667,
+        "target_percent": 53.333,
+        "delta_percentage_points": -13.333
+      },
+      "syntax_pass_rate": {
+        "source_percent": 100.0,
+        "target_percent": 86.667,
+        "delta_percentage_points": -13.333
+      },
+      "original_detection_rate": {
+        "source_percent": 100.0,
+        "target_percent": 66.667,
+        "delta_percentage_points": -33.333
+      },
+      "variant_recall": {
+        "source_percent": 86.667,
+        "target_percent": 60.0,
+        "delta_percentage_points": -26.667
+      },
+      "false_positive_rate": {
+        "source_percent": 3.333,
+        "target_percent": 0.0,
+        "delta_percentage_points": -3.333
+      }
+    },
+    {
+      "source": "direct_llm",
+      "target": "semantic_intent_repair",
+      "heldout_variant_recall": {
+        "source_percent": 50.0,
+        "target_percent": 53.333,
+        "delta_percentage_points": 3.333
+      },
+      "heldout_false_positive_rate": {
+        "source_percent": 0.0,
+        "target_percent": 0.0,
+        "delta_percentage_points": 0.0
+      },
+      "verified_rule_rate": {
+        "source_percent": 36.667,
+        "target_percent": 53.333,
+        "delta_percentage_points": 16.667
+      },
+      "syntax_pass_rate": {
+        "source_percent": 90.0,
+        "target_percent": 86.667,
+        "delta_percentage_points": -3.333
+      },
+      "original_detection_rate": {
+        "source_percent": 73.333,
+        "target_percent": 66.667,
+        "delta_percentage_points": -6.667
+      },
+      "variant_recall": {
+        "source_percent": 53.333,
+        "target_percent": 60.0,
+        "delta_percentage_points": 6.667
+      },
+      "false_positive_rate": {
+        "source_percent": 0.0,
+        "target_percent": 0.0,
+        "delta_percentage_points": 0.0
+      }
+    }
+  ],
+  "preregistered_threshold": {
+    "recall_delta_minimum_percentage_points": 10.0,
+    "false_positive_delta_maximum_percentage_points": 5.0
+  },
+  "architecture_confirmation_threshold_passed": false
+}

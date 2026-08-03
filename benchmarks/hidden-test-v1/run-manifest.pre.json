@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "name": "suricataagent-hidden-test-v1-primary-pre-run",
+  "sealed_at": "2026-08-03T02:40:15.685132+00:00",
+  "architecture": {
+    "tag": "semantic-intent-g-v1",
+    "commit": "4512c7599c1e2df088fdd9336d2b987de43d353d"
+  },
+  "sealed_dataset_commit": "940a40e7d9f0cc6e52ca8172338a5d886cd83ab2",
+  "sealed_dataset_tag": "hidden-test-v1-sealed",
+  "dataset": {
+    "public_manifest": "benchmarks/hidden-test-v1/manifest.public.json",
+    "public_manifest_sha256": "ee35fed4b7798af1bbbdf9047f0208f199fe13bc70157aa43c7b97c1c72524ba",
+    "runner_manifest": "benchmarks/hidden-test-v1/manifest.runner.json",
+    "runner_manifest_sha256": "ea5bc7c3901534e44bcb74b6bdef07317e96a9dcf12a12e665add4bc88685c56",
+    "runner_manifest_derivation": "Identical case list and paths; only top-level split/name permit the frozen dev-only runner loader to consume the sealed test set.",
+    "sealed_assets_manifest": "benchmarks/hidden-test-v1/sealed-assets-manifest.json",
+    "sealed_assets_manifest_sha256": "77867b0367af7aeee3c88e865a8efba43f6d4b7cb37b657285a48ac5ab2ca80d",
+    "case_count": 30,
+    "pcap_count": 150
+  },
+  "model": {
+    "identifier": "gpt-5.5",
+    "provider_base_url": "https://api.wushuang233.com/v1",
+    "temperature": 0.1,
+    "top_p": "provider_default",
+    "seed": null,
+    "api_timeout_seconds": 60,
+    "api_max_retries": 2
+  },
+  "systems": {
+    "primary": [
+      "direct_llm",
+      "direct_repair",
+      "semantic_intent_repair"
+    ],
+    "paired_source_only": [
+      "semantic_intent"
+    ],
+    "max_total_attempts": 3,
+    "repair_feedback_samples": [
+      "original",
+      "positive-01",
+      "negative-01"
+    ],
+    "heldout_samples": [
+      "positive-02",
+      "negative-02"
+    ],
+    "run_count": 1
+  },
+  "decision_rule": {
+    "recall_delta_minimum_percentage_points": 10.0,
+    "false_positive_delta_maximum_percentage_points": 5.0,
+    "comparison": "semantic_intent_repair minus direct_llm"
+  },
+  "prompt_sha256": {
+    "direct": "a814a5fe2402ece2b4c50879a6bb3c4805b87262fe570cbd7d982c42f5b20900",
+    "direct_repair": "fb3cbe526b5e80e8404aee314065dc2fc83c48d239cd6f1fdff2c7c13279eee3",
+    "semantic_intent": "b029f9a685fac372df6b25f8c88be3917f25c21e2b7cf8a51640454f186d0eac",
+    "semantic_intent_to_rule": "4b1f27a270d17f3b0d45d6f2b9823da4715aa0521f2cbe704cd0092d40bc495f",
+    "repair_diagnosis": "da244e3253df1f9ef6458e551c09a14123c97442148c9ea5e425fa352e373142",
+    "diagnosis_to_rule": "d9073ca7481d0ef94290785fe4dd685d9df4d4c12eb0016ea2de30adc992b0d4"
+  },
+  "suricata": {
+    "version": "Info: win32-service: Running as service: no\nThis is Suricata version 8.0.4 RELEASE",
+    "executable": "E:\\cslearn\\agent\\mytest\\agent-langgraph\\suricata\\suricata.exe",
+    "executable_sha256": "05b21e66777067b8596b820ab4db7fb81cd442a228d9a2d65db9d920c70feec9",
+    "config": "E:\\cslearn\\agent\\mytest\\agent-langgraph\\suricata\\suricata.yaml",
+    "config_sha256": "a210359572249f076083c06d1771f21e0a88d86e03fe86df64ea442cb965c2be"
+  },
+  "source_files": [
+    {
+      "path": "benchmarks/benchmark.py",
+      "sha256": "33667249c7e9c7fa8d5ba46fed027bcbfeb3f1f8be6717103318ef83fe3dbb81"
+    },
+    {
+      "path": "benchmarks/summary.py",
+      "sha256": "5bf5552be0b92706b7be53c3337d58e01c5450d5d6d0f102d4a6175417a013fd"
+    },
+    {
+      "path": "semantic_generation.py",
+      "sha256": "8597477240816a3ee9d62fb1c9c9692c08b06026ed85067855f92840400c4819"
+    },
+    {
+      "path": "validate_rules.py",
+      "sha256": "8597ebf27ee9cb75239c7996367572729d1e88d174f74acf98d9e02cde9ec9af"
+    },
+    {
+      "path": "benchmarks/HIDDEN_TEST_PREREGISTRATION.md",
+      "sha256": "9c1655b0ee5cb557f606252f4ec5cde329c211fd1032eba387c59aa0086dd59e"
+    },
+    {
+      "path": "benchmarks/build_hidden_v1_cases.py",
+      "sha256": "b44e73c1a12498b0848e60d9f62bc0b23e926e4737f5b5fb042b18172d08398e"
+    }
+  ],
+  "commands": [
+    "python -B benchmarks/benchmark.py --manifest benchmarks/hidden-test-v1/manifest.runner.json --results benchmarks/hidden-test-v1/results --all --mode direct_llm --resume",
+    "python -B benchmarks/benchmark.py --manifest benchmarks/hidden-test-v1/manifest.runner.json --results benchmarks/hidden-test-v1/results --all --mode direct_repair --max-attempts 3 --resume",
+    "python -B benchmarks/benchmark.py --manifest benchmarks/hidden-test-v1/manifest.runner.json --results benchmarks/hidden-test-v1/results --all --mode semantic_intent --resume",
+    "python -B benchmarks/benchmark.py --manifest benchmarks/hidden-test-v1/manifest.runner.json --results benchmarks/hidden-test-v1/results --all --mode semantic_intent_repair --max-attempts 3 --resume"
+  ]
+}
