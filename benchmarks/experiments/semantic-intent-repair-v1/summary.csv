@@ -1,0 +1,5 @@
+system,case_total,syntax_pass_rate,original_detection_rate,variant_recall,false_positive_rate,verified_rule_rate,verified_cases,negative_samples_unevaluated,heldout_variant_recall,heldout_false_positive_rate,heldout_negative_samples_unevaluated,avg_repair_attempts,avg_latency_ms
+direct_llm,12,0.833333,0.75,0.541667,0.05,0.333333,4,4,0.583333,0.1,2,,31028.0
+direct_repair,12,0.916667,0.833333,0.708333,0.090909,0.416667,5,2,0.583333,0.181818,1,0.667,62277.083
+semantic_intent,12,0.5,0.25,0.25,0.083333,0.166667,2,12,0.25,0.166667,6,,77112.25
+semantic_intent_repair,12,0.916667,0.833333,0.791667,0.090909,0.666667,8,2,0.75,0.181818,1,1.167,128228.333

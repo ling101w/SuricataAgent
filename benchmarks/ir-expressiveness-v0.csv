@@ -1,0 +1,13 @@
+case_id,direct_syntax_ok,direct_verified,post_generation_ir_parse_ok,status,lossless_detection,lossless_text,feature_count,pcre_count,sticky_buffer_count,schema_accepted_roles,compiler_accepted_roles,semantic_loss_options,optimizer_loss_options,structural_issues
+CVE-2014-3704,True,False,True,optimizer_loss_only,True,False,2,1,1,"[""alternative_evidence""]","[""alternative_evidence""]",[],"[""fast_pattern""]",[]
+CVE-2016-4437,False,False,True,unsupported,False,False,2,1,1,"[""alternative_evidence""]",[],[],"[""fast_pattern""]",[]
+CVE-2017-12629,True,True,True,unsupported,False,False,6,0,1,[],[],"[""startswith""]",[],[]
+CVE-2018-7600,True,False,True,lossy,False,False,6,0,2,"[""precision"", ""robust"", ""alternative_evidence""]","[""precision"", ""robust"", ""alternative_evidence""]","[""startswith""]",[],[]
+CVE-2021-26084,True,False,True,lossy,False,False,4,0,2,"[""precision"", ""robust"", ""alternative_evidence""]","[""precision"", ""robust"", ""alternative_evidence""]","[""distance:0"", ""within:200"", ""within:512""]","[""fast_pattern""]",[]
+CVE-2021-40438,False,False,False,unsupported,False,False,,,,[],[],[],[],"[{""code"": ""POST_GENERATION_IR_PARSE_ERROR"", ""detail"": ""第 1 条规则，第 1 行：content 十六进制块缺少结束竖线""}]"
+CVE-2021-41773,True,True,True,optimizer_loss_only,True,False,2,1,1,"[""alternative_evidence""]","[""alternative_evidence""]",[],"[""fast_pattern""]",[]
+CVE-2021-43798,True,True,True,lossy,False,False,2,1,1,"[""precision"", ""robust"", ""alternative_evidence""]","[""precision"", ""robust"", ""alternative_evidence""]","[""startswith""]",[],[]
+CVE-2022-22965,True,False,True,unsupported,False,False,2,1,1,[],[],[],"[""fast_pattern""]",[]
+CVE-2023-38646,True,True,True,unsupported,False,False,2,1,2,[],[],"[""startswith""]",[],[]
+CVE-2024-36401,True,False,True,unsupported,False,False,5,0,1,[],[],[],[],[]
+CVE-2025-29927,True,False,True,optimizer_loss_only,True,False,2,1,1,"[""alternative_evidence""]","[""alternative_evidence""]",[],"[""fast_pattern""]",[]

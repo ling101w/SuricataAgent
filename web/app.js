@@ -93,7 +93,7 @@ const artifactLabels = {
   mutations: "变体诊断",
   rule_ir: "Rule IR",
   supplemental_rule_ir: "补充 Rule IR",
-  coverage: "Coverage Graph",
+  final_judgment: "Final Judge",
 };
 
 const candidateScopeLabels = {
@@ -443,7 +443,7 @@ function initialRunView(maxAttempts) {
     validation: null,
     sample_matrix: [],
     mutation_skips: [],
-    coverage_graph: null,
+    final_judgment: null,
     rule_ir: null,
     attempts: [],
     progress: [
@@ -969,12 +969,6 @@ function candidateSidSummary(candidate, selected) {
   if (candidate.evaluation_sid != null) {
     values.push(`评测 ${candidate.evaluation_sid}`);
   }
-  if (
-    candidate.coverage_sid != null &&
-    candidate.coverage_sid !== candidate.evaluation_sid
-  ) {
-    values.push(`图 ${candidate.coverage_sid}`);
-  }
   return values.join(" · ") || "—";
 }
 
@@ -1017,7 +1011,7 @@ function renderCandidate(candidate, selectedCandidate, fallbackIndex) {
   }
   const score = document.createElement("span");
   score.className = "candidate-badge is-score";
-  score.textContent = `评分 ${candidateScore(candidate.score)}`;
+  score.textContent = `参考值 ${candidateScore(candidate.score)}`;
   badges.append(score);
   if (candidate.passed !== undefined && candidate.passed !== null) {
     const passed = document.createElement("span");
@@ -1242,75 +1236,26 @@ function renderAttempts(attempts = []) {
       strategySummary.textContent = `检索历史策略 · ${labels.join(" · ")}`;
       body.append(strategySummary);
     }
-    const graph = attempt.coverage_graph;
-    if (graph) {
+    const judgment = attempt.final_judgment;
+    if (judgment) {
       const graphSummary = document.createElement("div");
       graphSummary.className = "coverage-summary";
-      if (graph.error_code) {
-        graphSummary.classList.add("is-error");
-        graphSummary.textContent = `Coverage Graph 失败 · ${graph.error_code} · ${graph.error || "未提供原因"}`;
-      } else {
-        const relationValues = Array.isArray(graph.relations) ? graph.relations : [];
-        const duplicateCount = relationValues.filter((item) =>
-          ["text_duplicate", "logic_duplicate", "coverage_duplicate"].includes(item.kind),
-        ).length;
-        const dominanceCount = relationValues.filter(
-          (item) => item.kind === "dominates",
-        ).length;
-        const recommended = Array.isArray(graph.recommended_sids)
-          ? graph.recommended_sids.join(", ") || "无"
-          : "—";
-        const recommendedByScope = graph.recommended_by_scope || {};
-        const hasScopedRecommendations = recommendedByScope &&
-          typeof recommendedByScope === "object" &&
-          Object.keys(candidateScopeLabels).some((scope) =>
-            Array.isArray(recommendedByScope[scope]),
-          );
-        const sidNamespace = graph.sid_namespace === "delivery_mapped"
-          ? "交付映射 SID"
-          : graph.sid_namespace === "delivery"
-            ? "交付 SID"
-            : "评测 SID";
-
-        const graphHeader = document.createElement("div");
-        graphHeader.className = "coverage-summary-header";
-        graphHeader.textContent = `Coverage Graph · ${sidNamespace} · 重复 ${duplicateCount} · 经验覆盖 ${dominanceCount}`;
-        graphSummary.append(graphHeader);
-
-        const scopeGroups = document.createElement("div");
-        scopeGroups.className = "coverage-scope-groups";
-        if (hasScopedRecommendations) {
-          Object.entries(candidateScopeLabels).forEach(([scope, label]) => {
-            const values = Array.isArray(recommendedByScope[scope])
-              ? recommendedByScope[scope]
-              : [];
-            const row = document.createElement("div");
-            row.className = "coverage-scope-row";
-            const scopeLabel = document.createElement("span");
-            scopeLabel.textContent = label;
-            const sids = document.createElement("code");
-            sids.textContent = values.length ? `SID ${values.join(", ")}` : "无";
-            row.append(scopeLabel, sids);
-            scopeGroups.append(row);
-          });
-        } else {
-          const row = document.createElement("div");
-          row.className = "coverage-scope-row";
-          const scopeLabel = document.createElement("span");
-          scopeLabel.textContent = "推荐规则";
-          const sids = document.createElement("code");
-          sids.textContent = ["—", "无"].includes(recommended)
-            ? recommended
-            : `SID ${recommended}`;
-          row.append(scopeLabel, sids);
-          scopeGroups.append(row);
-        }
-        graphSummary.append(scopeGroups);
-
-        const comparisonNote = document.createElement("p");
-        comparisonNote.className = "coverage-scope-note";
-        comparisonNote.textContent = "关系仅在同方向 + 同检测层级内比较";
-        graphSummary.append(comparisonNote);
+      const graphHeader = document.createElement("div");
+      graphHeader.className = "coverage-summary-header";
+      graphHeader.textContent = `Final Judge · 候选 ${judgment.selected_candidate ?? "—"}`;
+      graphSummary.append(graphHeader);
+      const reason = document.createElement("p");
+      reason.className = "coverage-scope-note";
+      reason.textContent = judgment.reason || "未提供判断理由";
+      graphSummary.append(reason);
+      const risks = Array.isArray(judgment.overfitting_risks)
+        ? judgment.overfitting_risks
+        : [];
+      if (risks.length) {
+        const riskText = document.createElement("p");
+        riskText.className = "coverage-scope-note";
+        riskText.textContent = `过拟合风险 · ${risks.join(" · ")}`;
+        graphSummary.append(riskText);
       }
       body.append(graphSummary);
     }

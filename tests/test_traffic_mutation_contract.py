@@ -11,10 +11,12 @@ from xml.etree import ElementTree
 import pytest
 
 import traffic_cases
+from rule_compiler import SemanticRequestChange, SemanticTestcase
 from traffic_cases import (
     TrafficDerivation,
     TrafficSampleList,
     build_traffic_matrix,
+    materialize_semantic_testcases,
     derive_http_cases,
     derive_http_cases_with_diagnostics,
     parse_http_request,
@@ -443,3 +445,113 @@ def test_uploaded_negative_pcap_is_copied_into_reproducible_sample_dir(
     assert copied.pcap_path.parent == sample_dir.resolve()
     assert copied.pcap_path.name == "negative-uploaded-1.pcap"
     assert copied.pcap_path.read_bytes() == b"negative-pcap"
+
+
+def test_semantic_query_testcases_become_real_positive_and_negative_pcaps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generated: list[tuple[Path, bytes, bytes]] = []
+
+    def fake_generate_pcap(
+        output_file: str,
+        request_bytes: bytes,
+        response_bytes: bytes,
+        *,
+        config: object,
+    ) -> Path:
+        del config
+        path = Path(output_file)
+        path.write_bytes(b"pcap")
+        generated.append((path, request_bytes, response_bytes))
+        return path
+
+    monkeypatch.setattr(traffic_cases, "generate_pcap", fake_generate_pcap)
+    samples = materialize_semantic_testcases(
+        tmp_path,
+        b"GET /view?file=file:///etc/passwd HTTP/1.1\r\nHost: x\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK",
+        (
+            SemanticTestcase(
+                "alert",
+                (SemanticRequestChange("query", "file", "file:///etc/shadow"),),
+                "同类敏感文件读取",
+            ),
+            SemanticTestcase(
+                "no_alert",
+                (SemanticRequestChange("query", "file", "https://example.com/a.pdf"),),
+                "正常远程 PDF",
+            ),
+        ),
+    )
+
+    assert [sample.expected for sample in samples] == ["alert", "no_alert"]
+    assert all(sample.source == "semantic" for sample in samples)
+    assert b"file%3A%2F%2F%2Fetc%2Fshadow" in generated[0][1]
+    assert b"https%3A%2F%2Fexample.com%2Fa.pdf" in generated[1][1]
+    assert generated[0][2].endswith(b"OK")
+    assert generated[1][2].endswith(b"OK")
+
+
+def test_semantic_testcase_cannot_add_unknown_field_without_neutralizing_attack(
+    tmp_path: Path,
+) -> None:
+    samples = materialize_semantic_testcases(
+        tmp_path,
+        b"GET /view?file=file:///etc/passwd HTTP/1.1\r\nHost: x\r\n\r\n",
+        b"",
+        (
+            SemanticTestcase(
+                "no_alert",
+                (SemanticRequestChange("query", "otherParam", "file:///etc/shadow"),),
+                "未知字段",
+            ),
+        ),
+    )
+
+    assert not samples
+    assert samples.mutation_skips[0].code == "SEMANTIC_ATTACK_FIELD_NOT_NEUTRALIZED"
+
+
+def test_semantic_negative_can_move_attack_value_to_unrelated_query_field(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generated_requests: list[bytes] = []
+
+    def fake_generate_pcap(
+        output_file: str,
+        request_bytes: bytes,
+        _response_bytes: bytes,
+        *,
+        config: object,
+    ) -> Path:
+        del config
+        path = Path(output_file)
+        path.write_bytes(b"pcap")
+        generated_requests.append(request_bytes)
+        return path
+
+    monkeypatch.setattr(traffic_cases, "generate_pcap", fake_generate_pcap)
+    samples = materialize_semantic_testcases(
+        tmp_path,
+        b"GET /view?file=file:///etc/passwd HTTP/1.1\r\nHost: x\r\n\r\n",
+        b"",
+        (
+            SemanticTestcase(
+                "no_alert",
+                (
+                    SemanticRequestChange("query", "file", "report.pdf"),
+                    SemanticRequestChange(
+                        "query", "otherParam", "file:///etc/passwd"
+                    ),
+                ),
+                "攻击字符串位于无关字段",
+            ),
+        ),
+    )
+
+    assert len(samples) == 1
+    request_line = generated_requests[0].split(b"\r\n", 1)[0]
+    assert b"file=report.pdf" in request_line
+    assert b"otherParam=file%3A%2F%2F%2Fetc%2Fpasswd" in request_line

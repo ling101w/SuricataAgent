@@ -14,17 +14,18 @@ from evidence_fingerprint import (
 )
 from generate_rules import SYSTEM_PROMPT, extract_detection_features
 from main import (
+    _candidate_reference_metrics,
     _candidate_validation,
+    _deterministic_primary_fallback,
     _remap_validation_sid,
-    _score_candidate,
-    _select_primary_candidate,
 )
 from rule_knowledge import (
     CANDIDATE_ROLES,
     FORBIDDEN_MODEL_FEATURE_BUFFERS,
     MODEL_FEATURE_BUFFERS,
     REQUEST_BUFFERS,
-    REQUIRED_CANDIDATE_COUNT,
+    MAX_CANDIDATES,
+    MIN_CANDIDATES,
     RESPONSE_BUFFERS,
 )
 from rule_compiler import (
@@ -90,10 +91,6 @@ def _candidate_data(role: str) -> dict[str, object]:
     [
         pytest.param(_candidate_data("precision"), id="裸候选"),
         pytest.param(
-            {"candidates": [_candidate_data("precision")]},
-            id="一个候选",
-        ),
-        pytest.param(
             {"candidates": [_candidate_data("precision") for _ in range(4)]},
             id="四个候选",
         ),
@@ -102,18 +99,30 @@ def _candidate_data(role: str) -> dict[str, object]:
 def test_detection_plan_rejects_invalid_top_level_or_candidate_count(
     payload: object,
 ) -> None:
-    """顶层只能是 candidates 对象，且候选数必须恰好为三个。"""
+    """顶层必须是计划对象，且候选数不能超过上限。"""
     with pytest.raises(DetectionSchemaError):
         parse_detection_data(payload)
 
 
-def test_detection_plan_accepts_fixed_candidate_roles() -> None:
-    """解析器只接受与提示词一致的固定三角色顺序。"""
+def test_detection_plan_accepts_one_to_three_unique_strategies() -> None:
+    """证据有限时允许一个候选，多策略时 role 可按实际价值排序。"""
+    single = parse_detection_data({"candidates": [_candidate_data("precision")]})
     plan = parse_detection_data(
-        {"candidates": [_candidate_data(role) for role in CANDIDATE_ROLES]}
+        {
+            "candidates": [
+                _candidate_data("robust"),
+                _candidate_data("precision"),
+                _candidate_data("alternative_evidence"),
+            ]
+        }
     )
 
-    assert tuple(candidate.role for candidate in plan.candidates) == CANDIDATE_ROLES
+    assert len(single.candidates) == 1
+    assert tuple(candidate.role for candidate in plan.candidates) == (
+        "robust",
+        "precision",
+        "alternative_evidence",
+    )
 
 
 @pytest.mark.parametrize("weak_value", ["error", "OK", "success"])
@@ -126,41 +135,33 @@ def test_response_candidate_rejects_generic_status_text(weak_value: str) -> None
         parse_detection_data({"candidates": values})
 
 
-@pytest.mark.parametrize(
-    "roles",
-    [
-        pytest.param(
-            ("robust", "precision", "alternative_evidence"),
-            id="角色乱序",
-        ),
-        pytest.param(
-            ("precision", "robust", "robust"),
-            id="角色重复",
-        ),
-    ],
-)
-def test_detection_plan_rejects_noncanonical_role_order(
-    roles: tuple[str, str, str],
-) -> None:
-    """固定三个角色必须按唯一顺序出现。"""
-    with pytest.raises(DetectionSchemaError, match="role 必须按顺序且唯一对应"):
+def test_detection_plan_rejects_duplicate_roles() -> None:
+    """策略标签可换序，但不能用重复 role 凑候选数。"""
+    with pytest.raises(DetectionSchemaError, match="role 必须唯一"):
         parse_detection_data(
-            {"candidates": [_candidate_data(role) for role in roles]}
+            {
+                "candidates": [
+                    _candidate_data("precision"),
+                    _candidate_data("precision"),
+                ]
+            }
         )
 
 
-def test_batch_compiler_rejects_invalid_candidate_count_and_order() -> None:
-    """程序直接构造候选时也不能绕过固定三角色 contract。"""
+def test_batch_compiler_accepts_subsets_and_rejects_empty_plan() -> None:
+    """编译器按实际策略顺序工作，同时保留候选数量下限。"""
     plan = parse_detection_data(
         {"candidates": [_candidate_data(role) for role in CANDIDATE_ROLES]}
     )
 
-    with pytest.raises(ValueError, match="候选数量必须恰好为"):
-        compile_candidates(plan.candidates[:2])
-    with pytest.raises(ValueError, match="role 必须按顺序且唯一对应"):
+    assert len(compile_candidates(plan.candidates[:2]).candidates) == 2
+    assert len(
         compile_candidates(
             (plan.candidates[1], plan.candidates[0], plan.candidates[2])
-        )
+        ).candidates
+    ) == 3
+    with pytest.raises(ValueError, match="候选数量必须在"):
+        compile_candidates(())
 
 
 def test_evidence_fingerprint_is_stable_and_json_serializable() -> None:
@@ -413,8 +414,8 @@ def test_alternative_request_requires_at_least_one_independent_exploit_evidence(
         parse_detection_data({"candidates": values})
 
 
-def test_dynamic_fields_do_not_affect_candidate_score() -> None:
-    """dynamic_fields 是解释性元数据，不应改变候选评分。"""
+def test_reference_metrics_are_observations_not_decision_proof() -> None:
+    """动态字段不影响成本，旧启发式值明确标记为仅供参考。"""
     validation = {
         "positive_coverage": 0.75,
         "false_positive_count": 1,
@@ -422,22 +423,25 @@ def test_dynamic_fields_do_not_affect_candidate_score() -> None:
     base_complexity = {"pcre_count": 1, "dynamic_field_count": 0}
     detailed_complexity = {"pcre_count": 1, "dynamic_field_count": 7}
 
-    assert _score_candidate(validation, base_complexity) == _score_candidate(
-        validation,
-        detailed_complexity,
-    )
+    base = _candidate_reference_metrics(validation, base_complexity)
+    detailed = _candidate_reference_metrics(validation, detailed_complexity)
+    assert base == detailed
+    assert base["decision_authority"] == "reference_only"
 
 
 def test_success_indicator_cannot_replace_case_specific_primary_rule() -> None:
     """补充成功指标即使满分，也不能抢走漏洞特异主规则。"""
-    selected = _select_primary_candidate(
+    selected = _deterministic_primary_fallback(
         [
             {
                 "candidate_index": 1,
                 "detection_scope": "case_specific",
                 "validation": {"passed": False},
                 "passed": False,
-                "score": 85.714,
+                "reference_metrics": {
+                    "positive_coverage": 0.85714,
+                    "false_positive_count": 0,
+                },
                 "complexity": {"estimated_cost": 6},
             },
             {
@@ -445,7 +449,10 @@ def test_success_indicator_cannot_replace_case_specific_primary_rule() -> None:
                 "detection_scope": "success_indicator",
                 "validation": {"passed": True},
                 "passed": True,
-                "score": 100.0,
+                "reference_metrics": {
+                    "positive_coverage": 1.0,
+                    "false_positive_count": 0,
+                },
                 "complexity": {"estimated_cost": 3},
             },
         ]
@@ -621,7 +628,7 @@ def test_dynamic_fields_do_not_affect_estimated_cost() -> None:
 
 def test_prompt_candidate_count_and_buffers_follow_shared_contract() -> None:
     """提示词必须由共享候选范围和模型可选 buffer 集合生成。"""
-    count_rule = f"必须恰好输出 {REQUIRED_CANDIDATE_COUNT} 个候选"
+    count_rule = f"输出 {MIN_CANDIDATES}～{MAX_CANDIDATES} 个真正不同的 detection strategies"
     buffer_rule = next(
         line for line in SYSTEM_PROMPT.splitlines() if "buffer 只能从这些值选择" in line
     )
@@ -630,6 +637,7 @@ def test_prompt_candidate_count_and_buffers_follow_shared_contract() -> None:
     assert '"detection_scope": "case_specific"' in SYSTEM_PROMPT
     assert '"detection_scope": "success_indicator"' in SYSTEM_PROMPT
     assert "robust：必须保留最小 endpoint 身份锚点" in SYSTEM_PROMPT
+    assert "semantic_testcases 可省略" in SYSTEM_PROMPT
     assert "pcre 不能是该 buffer 的首个或唯一特征" in SYSTEM_PROMPT
     assert all(buffer in buffer_rule for buffer in MODEL_FEATURE_BUFFERS)
     assert all(buffer not in buffer_rule for buffer in FORBIDDEN_MODEL_FEATURE_BUFFERS)

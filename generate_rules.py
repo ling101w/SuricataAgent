@@ -13,8 +13,9 @@ from rule_knowledge import (
     CANDIDATE_ROLES,
     CANDIDATE_ROLE_GUIDANCE,
     DYNAMIC_HTTP_FIELDS,
+    MAX_CANDIDATES,
+    MIN_CANDIDATES,
     MODEL_FEATURE_BUFFERS,
-    REQUIRED_CANDIDATE_COUNT,
 )
 
 
@@ -76,20 +77,32 @@ _SYSTEM_PROMPT_TEMPLATE = """\
       "dynamic_fields": ["Content-Length"],
       "reason": "简要说明独立证据来源；没有强响应证据时改用另一组请求利用特征"
     }
+  ],
+  "semantic_testcases": [
+    {
+      "expected": "alert",
+      "changes": [{"location": "query", "field": "file", "value": "file:///etc/shadow"}],
+      "reason": "同一漏洞入口的另一项语义等价攻击值"
+    },
+    {
+      "expected": "no_alert",
+      "changes": [{"location": "query", "field": "file", "value": "https://example.com/a.pdf"}],
+      "reason": "同一字段的正常业务值"
+    }
   ]
 }
 
 必须遵守：
-1. 必须恰好输出 __REQUIRED_CANDIDATE_COUNT__ 个候选，并严格按以下顺序填写 role，不得缺少、重复或调换：
-   __CANDIDATE_ROLE_LINES__。
-2. Candidate A / precision：保留 endpoint + exploit semantic，以尽量降低误报。
-3. Candidate B / robust：必须保留最小 endpoint 身份锚点；减少参数名和具体 payload 绑定，
+1. 输出 1～3 个真正不同的 detection strategies。role 不能重复，可按证据选择：
+   __CANDIDATE_ROLE_LINES__。推荐 precision、robust、alternative_evidence，但不要为了凑数量制造弱策略。
+2. precision：保留 endpoint + exploit semantic，以尽量降低误报。
+3. robust：必须保留最小 endpoint 身份锚点；减少参数名和具体 payload 绑定，
    优先抵抗大小写、编码与表示变化，不能退化成适用于任意接口的宽泛匹配。
-4. Candidate C / alternative_evidence：响应中存在攻击成功后才会出现的强证据时使用 response；
+4. alternative_evidence：只有响应中存在攻击成功后才会出现的强证据时才使用 response；
    response 候选必须使用一条不可混淆的结构化成功特征，或至少两条独立响应正文证据；
    error、ok、success、状态码等通用文本不算强证据。否则必须使用与 A、B 不同的另一组
    独立 exploit feature。
-5. 三个候选必须探索不同证据组合。禁止只切换 nocase、method、reason、dynamic_fields，
+5. 多个候选必须探索不同证据组合。禁止只切换 nocase、method、reason、dynamic_fields，
    或把 content 改成等价 PCRE 来制造差异。robust 只能把 endpoint 缩短为最小身份锚点，
    并减少参数名和具体 payload 绑定；不能完全移除 endpoint。每个候选仍必须单独具备检测意义。
 6. 上面 JSON 中尖括号内容只是 schema 占位符，绝不能原样输出，也不能作为检测特征。
@@ -111,6 +124,12 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 19. 不得输出 action、msg、flow、classtype、sid、rev 或完整 Suricata 规则。
 20. 历史 Detection Strategy 只能提供通用检测经验；不得复制当前漏洞证据中不存在的
    endpoint、参数、文件名或表示变体。
+21. semantic_testcases 可省略或输出空数组。只在证据足够时提供少量语义正负样本；
+   location 只能是 query、json、form，value 是替换值。正样本 field 必须已存在；负样本可新增
+   一个无关字段，但必须在同一 testcase 中把原攻击字段替换为正常值。
+   不得输出原始 HTTP、头字段、路径、响应或 PCAP。程序会负责协议改写和真实 PCAP 生成。
+22. semantic positive 必须保持同一漏洞入口和攻击语义；semantic negative 必须是合理正常值
+   或把攻击值放入明确无关字段。不得臆造当前请求格式不支持的 testcase。
 """
 
 _CANDIDATE_ROLE_LINES = "；\n   ".join(
@@ -118,10 +137,7 @@ _CANDIDATE_ROLE_LINES = "；\n   ".join(
     for index, role in enumerate(CANDIDATE_ROLES, start=1)
 )
 SYSTEM_PROMPT = (
-    _SYSTEM_PROMPT_TEMPLATE.replace(
-        "__REQUIRED_CANDIDATE_COUNT__", str(REQUIRED_CANDIDATE_COUNT)
-    )
-    .replace("__CANDIDATE_ROLE_LINES__", _CANDIDATE_ROLE_LINES)
+    _SYSTEM_PROMPT_TEMPLATE.replace("__CANDIDATE_ROLE_LINES__", _CANDIDATE_ROLE_LINES)
     .replace("__MODEL_FEATURE_BUFFERS__", "、".join(sorted(MODEL_FEATURE_BUFFERS)))
     .replace("__DYNAMIC_HTTP_FIELDS__", "、".join(DYNAMIC_HTTP_FIELDS))
 )
@@ -268,8 +284,8 @@ def extract_detection_features(
         ]
     )
     task = (
-        f"请根据以下证据提取恰好 {REQUIRED_CANDIDATE_COUNT} 个检测特征候选，"
-        f"role 必须依次为 {'、'.join(CANDIDATE_ROLES)}。\n\n"
+        f"请根据以下证据提取 {MIN_CANDIDATES} 到 {MAX_CANDIDATES} 个真正不同的检测策略，"
+        f"role 可从 {'、'.join(CANDIDATE_ROLES)} 选择且不能重复。\n\n"
         + evidence
     )
     strategy_text = _strategy_context_text(strategy_context)

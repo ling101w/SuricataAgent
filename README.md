@@ -1,26 +1,30 @@
 # Suricata 规则生成工作流
 
-这个项目把 LLM 限定在“理解漏洞并提取检测特征”这一层。模型只返回三个固定角色的
-结构化 JSON 候选，不直接编写 Suricata 规则；Python 负责严格解析、质量检查、
-确定性编译、样本矩阵回放、候选评分和产物归档。
+这个项目遵循“AI 做判断，系统做证明”。模型理解漏洞、生成 1～3 个检测策略、提出可选
+语义样本，并在多个候选通过门禁后做最终语义选择；Python 负责严格解析、确定性编译、
+SID/sticky buffer、真实 Suricata、PCAP、正负样本、回归数据和产物归档。
 
-## 最终架构
+## 现有结构化工作流（Legacy B/C）
+
+下面的 Detection Plan/Compiler 链路继续保留，用于现有应用兼容和冻结消融复现；Benchmark
+v0 已证明它不应继续作为新规则生成主线。当前选定的生成架构与实测结果见后文 F/G。
 
 ```text
 运行环境预检
   -> 构造正向变体 / 近似负样本矩阵
-  -> LLM 提取 Precision / Robust / Alternative Evidence 三个候选 JSON
+  -> LLM 提取 1～3 个真正不同的 Detection Strategy JSON
+  -> 代码物化可选 semantic testcase 为真实 HTTP / PCAP
   -> Python 严格解析、lint 并确定性编译
   -> Suricata 语法检查和逐样本 PCAP 回放
-  -> Evidence Fingerprint + Rule IR + Coverage Graph
-  -> 按 detection_scope 分层，再在同层候选中评分
+  -> syntax / lint / positive / negative 确定性门禁
+  -> 多个主候选通过时交给 LLM Final Judge
        | case_specific 通过 -> 固定主规则 SID -> 保存产物
        | success_indicator 通过 -> 分配补充 SID -> 单独保存
        | 失败 -> 确定性诊断 -> 携具体失败样本重试
 ```
 
-模型输出必须按 `precision`、`robust`、`alternative_evidence` 的固定顺序提供三个
-候选。下面示例展示角色和证据组合的差异：
+`precision`、`robust`、`alternative_evidence` 是可选策略提示，不是固定流水线位置。
+证据只支持一种可靠策略时可以只输出一个；没有强响应证据时不应强造 Alternative。
 
 ```json
 {
@@ -57,7 +61,10 @@
           "content": "/evo-apigw/evo-cirs/material/viewPDF"
         },
         {"buffer": "http.uri.raw", "content": "file", "nocase": true},
-        {"buffer": "http.uri.raw", "content": "passwd", "nocase": true}
+        {
+          "buffer": "http.uri.raw",
+          "pcre": "/(?:file:|file%3a)(?:\\/|%2f){2,3}etc(?:\\/|%2f)passwd/i"
+        }
       ],
       "dynamic_fields": ["Host", "Content-Length"],
       "reason": "保留最小接口身份，减少参数名和分隔符表示绑定"
@@ -69,10 +76,23 @@
       "protocol": "http",
       "method": null,
       "features": [
-        {"buffer": "file_data", "content": "root:x:0:0:"}
+        {"buffer": "file_data", "content": "root:x:0:0:root:"},
+        {"buffer": "file_data", "content": ":/root:/bin/"}
       ],
       "dynamic_fields": ["Content-Length"],
       "reason": "使用文件读取成功后的独立响应证据，仅作为补充指标"
+    }
+  ],
+  "semantic_testcases": [
+    {
+      "expected": "alert",
+      "changes": [{"location": "query", "field": "pdfUrl", "value": "file:///etc/shadow"}],
+      "reason": "同一读取语义的另一敏感目标"
+    },
+    {
+      "expected": "no_alert",
+      "changes": [{"location": "query", "field": "pdfUrl", "value": "https://example.com/a.pdf"}],
+      "reason": "相同字段的正常 PDF 值"
     }
   ]
 }
@@ -86,7 +106,7 @@
 - 写入 `metadata:detection_scope <scope>`，使后续 IR、验证和覆盖分析使用同一语义。
 - 为引号、反斜杠、分号、竖线和不可打印字节生成安全的十六进制 `content`。
 - 检查 HTTP sticky buffer、方向和 PCRE 前置锚点。
-- 强制三个候选角色唯一且顺序固定，并拒绝仅靠 `nocase`、method、reason 或
+- 强制 1～3 个候选角色唯一，并拒绝仅靠 `nocase`、method、reason 或
   `dynamic_fields` 制造的重复证据集合；Precision 和 Robust 都必须保留 endpoint 身份与
   exploit 语义，Robust 只能减少参数名和具体 payload 绑定，不能退化成跨接口 IOC。
 - 固定 scope 契约：Precision、Robust 和 request Alternative 为 `case_specific`；response
@@ -95,7 +115,7 @@
   request/response buffer 混用等高误报候选。
 
 因此，模型质量影响“选择哪些检测特征”，不会再影响规则分号、转义、SID 或 sticky
-buffer 的基本语法。候选角色、数量、buffer 方向、动态字段和 exploit marker 统一定义在
+buffer 的基本语法。候选角色、范围、buffer 方向、动态字段和 exploit marker 统一定义在
 `rule_knowledge.py`，Prompt、编译器、诊断器和样本派生器不再各自维护副本。
 
 ## 样本矩阵
@@ -138,8 +158,10 @@ Header 顺序变化和 TCP 分段；当请求结构适用时，还会派生额�
 
 因此，请求侧负样本可以使用普通响应；事务特异性负样本则会保留原始攻击响应。验证器会
 按方向和 scope 计算每个样本的 `expected_any_sids`。样本对当前候选不适用时仍保留回放
-事实，但标记 `applicable=false`，不计入该候选的通过门槛、recall 或 FP；Coverage Graph
-也只统计样本契约内的 SID 命中。
+事实，但标记 `applicable=false`，不计入该候选的通过门槛、recall 或 FP。响应候选还必须
+同时具备并通过 `response_detection` 的
+正向变体和近似负变体；只有原始响应命中时会返回 `RESPONSE_ORACLE_REQUIRED`，不会被
+当成已验证的补充规则。
 
 并非每种漏洞都会生成所有变体；派生器只生成能够从当前 HTTP 请求确定得到的等价
 样本。遇到 chunked、压缩正文、重复 Content-Type/Content-Length、未知字符集、
@@ -148,17 +170,23 @@ XML DTD/ENTITY 或无法安全解析的结构化正文时会跳过自动改写�
 验证报告在 `sample_results` 中保留每个 PCAP 的预期、实际命中 SID 和通过状态，不再把
 所有负样本结果合并成一个不可定位的列表。
 
-## Rule IR 与 Coverage Graph
+模型还可以声明少量 `semantic_testcases`。它不能提交原始 HTTP 或 PCAP，只能替换原始
+query、JSON 或 form 中已存在的字段；代码负责解析、编码、同步 Content-Length 和生成
+PCAP。字段不存在、重复、格式不支持或协议边界不安全时会记录结构化拒绝原因。
 
-`rule_ir.py` 把生成规则或历史 `.rules` 解析为统一中间表示，保留 SID、方向、method、
-sticky buffer、content/PCRE、nocase、否定匹配、管理字段和 endpoint/parameter/exploit
-证据分类；旧式 `http_uri` content modifier 和 PCRE `U/I/P/H` 等 HTTP buffer modifier
-也会映射到现代 sticky buffer。`evidence_fingerprint.py` 对 raw/normalized buffer、大小写、
+## Rule IR 与规则库 Coverage Graph
+
+`rule_ir.py` 把生成规则或历史 `.rules` 解析为统一中间表示，保留 SID、方向、scope、method、
+sticky buffer、content/PCRE、nocase、否定匹配、管理字段，以及 endpoint/parameter/exploit/
+success 证据分类；响应证据属于 success，不再被笼统归入 exploit。旧式 `http_uri` content
+modifier 和 PCRE `U/I/P/H` 等 HTTP buffer modifier 也会映射到现代 sticky buffer。
+`evidence_fingerprint.py` 对 raw/normalized buffer、大小写、
 URI 编码、斜杠表示和等价字面量 PCRE 做稳定归一化，并同时提供可展示 JSON 和
 `efp:v1:<sha256>` ID。Coverage Graph 另用包含 method、protocol、nocase、否定极性和
 PCRE modifier 的 `lfp:v1:<sha256>`，不会把证据相似误报成检测逻辑相同。
 
-Coverage Graph 直接使用 Suricata 已产生的 `sample_results[].matched_sids`，不会增加回放：
+Coverage Graph 不参与单个 CVE 的在线候选选择，只用于历史规则库治理。它直接使用规则库
+批量回放产生的 `sample_results[].matched_sids`：
 
 - `text_duplicate`：排除 SID/msg/rev 等管理字段后，检测文本相同。
 - `logic_duplicate`：完整规则逻辑指纹与 TP/FP 覆盖相同。
@@ -211,11 +239,9 @@ python rule_library.py .\rules\history.rules `
 
 ## 候选选择与重试
 
-三个角色候选会分别得到自己的规则、样本结果和复杂度。Precision 保留 endpoint 与
-利用语义；Robust 减少接口绑定并覆盖表示变化；Alternative Evidence 优先选择强响应
-证据，否则必须提供 A/B 未使用过的请求利用特征。为减少重复启动 Suricata，
+每个候选会分别得到规则、Rule IR、样本结果和复杂度。为减少重复启动 Suricata，
 实现可以批量回放后按 SID 拆分结果；某条规则造成批量语法失败时会单独加载，以隔离
-坏候选。每个候选仍按自己的结果评分：
+坏候选。系统保存以下旧启发式值作为展示和排序参考：
 
 ```text
 score = 正向覆盖率 × 100
@@ -223,21 +249,89 @@ score = 正向覆盖率 × 100
         - PCRE 数量 × 5
 ```
 
-`dynamic_fields` 只记录模型识别出的不稳定字段，帮助审计和修复候选；它不参与最终
-规则，也不会降低候选分数或同分时的复杂度排序。
+它明确标记为 `decision_authority=reference_only`，不能证明“分高就是最佳”。
+`dynamic_fields` 只记录不稳定字段，不参与最终规则或参考值。
 
-优先从完全通过的候选中选择最高分；没有候选通过时选择最高分失败候选进入诊断。
-同分时依次选择估算复杂度更低、序号更早的候选。
+syntax、lint、positive mutation 或 known negative 任一失败都会被系统淘汰。只有一个
+`case_specific` 候选通过时直接交付；多个通过时，Final Judge 同时读取原始漏洞证据、
+Rule IR、matrix 和复杂度，选择更像真实可部署逻辑的候选并说明过拟合风险。Judge 只能
+选择通过集合中的 index；输出越权或不可解析时，系统按覆盖事实、误报数和最低复杂度降级。
 
 候选评测时临时使用 `sid_start + candidate_index - 1` 区分告警。选出最终候选后会
 重新编译，并把最终规则和验证结果统一映射回 `sid_start`。因此候选顺序不会改变交付
-规则的正式 SID。Coverage Graph 会同时记录 `selected_evaluation_sid`、
-`selected_final_sid` 和完整 SID 映射，图中的选中节点与交付 Rule IR 使用同一正式 SID。
+规则的正式 SID。
 
 验证失败后，确定性诊断模块会分析规则、候选计划和逐样本结果，区分 PCRE 解析、
 转义、方向、sticky buffer、raw/normalized URI、过度具体、缺少利用值和误报弱特征等
-问题。下一轮 LLM 收到的是诊断、失败样本请求摘录和候选分数，仍然只能修复结构化
+问题。下一轮 LLM 收到的是诊断、失败样本请求摘录和候选参考指标，仍然只能修复结构化
 特征 JSON。默认最多尝试 3 次，环境错误和不可重试错误不会无意义地请求模型。
+
+## Benchmark v0 消融结果
+
+冻结开发集包含 12 个 CVE、60 个 PCAP。每个案例有 1 个原始攻击、2 个等价攻击变体和
+2 个近似负样本；A/B/C 使用同一个 `gpt-5.5` 模型和同一份模型可见输入。原始 A/B/C
+结果、逐案例记录和 12 条 Direct 规则已冻结在
+[`benchmarks/baselines/v0`](benchmarks/baselines/v0/)，哈希清单可防止后续实验覆盖基线。
+
+| 组别 | Syntax | Original | Variant | FP | Verified | Held-out variant |
+|---|---:|---:|---:|---:|---:|---:|
+| A Direct LLM | 83.3% | 75.0% | 54.2% | 5.0% | 33.3% (4/12) | 58.3% |
+| B IR + Compiler | 33.3% | 33.3% | 4.2% | 0%* | 0% (0/12) | 0% |
+| C Full Agent | 50.0% | 50.0% | 12.5% | 0%* | 0% (0/12) | 16.7% |
+| D Direct + Validator | 83.3% | 75.0% | 54.2% | 5.0% | 33.3% (4/12) | 58.3% |
+| E Direct + Validator + Repair | **91.7%** | **83.3%** | **70.8%** | 9.1% | **41.7% (5/12)** | 58.3% |
+
+`*` B/C 有大量规则未生成或未通过语法，负样本未完整评测，不能把 0% 理解为零误报能力。
+D 与 A 数值相同是预期结果：A 的评分阶段本来就包含 syntax 和 PCAP matrix，D 只是把这
+一步显式物化，没有把结果反馈给模型。
+
+E 与 A 配对复用完全相同的初始规则。repair 只能看到 `original`、`positive-01` 和
+`negative-01`，`positive-02` 与 `negative-02` 始终 held out，最多直接修复 Suricata
+rule 两次，不经过 Detection Plan 或 compiler。E 把可见 `positive-01` 命中从 6/12
+提高到 10/12，但 held-out `positive-02` 保持 7/12；held-out 误报还从 1/10 增至 2/11。
+因此 execution-guided repair 已产生增益，但当前增益主要来自修复已见测试，尚未证明
+语义泛化。完整 A-E 快照与 E 的最终规则位于
+[`benchmarks/experiments/direct-repair-v1`](benchmarks/experiments/direct-repair-v1/)。
+
+Direct Rule 到生成期 IR 的表达能力审计进一步定位了瓶颈：后置 Rule IR 能解析 11/12，
+当前 Detection Plan schema 只接受 7/12，compiler 只接受 6/12，检测语义可无损表达仅
+3/12。主要损失包括 `startswith`、`distance/within`、无同 buffer content 前缀的
+PCRE、Cookie 检测和强制 endpoint/exploit heuristic。明细见
+[`ir-expressiveness-v0.md`](benchmarks/ir-expressiveness-v0.md)。这支持把 IR 从生成语言
+调整为规则生成后的分析、指纹、覆盖图和知识治理语言。
+
+在同一 12-CVE dev set 上继续运行 F/G：F 先提取不含 Suricata 字段的
+`DetectionIntent`，再直接生成完整规则；G 严格复用 F 的初始 intent/rule，只把
+`original`、`positive-01`、`negative-01` 的反馈交给模型，并在每次最小修复前先生成
+`RepairDiagnosis`。`positive-02` 和 `negative-02` 始终 held out。
+
+| 组别 | Syntax | Variant | Held-out variant | FP | Held-out FP | Verified |
+|---|---:|---:|---:|---:|---:|---:|
+| A Direct LLM | 83.3% | 54.2% | 58.3% | 5.0% | 10.0% | 33.3% (4/12) |
+| E Direct + Repair | 91.7% | 70.8% | 58.3% | 9.1% | 18.2% | 41.7% (5/12) |
+| F Semantic Intent + Direct | 50.0% | 25.0% | 25.0% | 8.3%* | 16.7%* | 16.7% (2/12) |
+| G Semantic Intent + Diagnosis + Repair | **91.7%** | **79.2%** | **75.0%** | 9.1% | 18.2% | **66.7% (8/12)** |
+
+`*` F 只有 6/12 条规则通过语法，FP 分母不完整，不能与完整评测系统直接比较。F 单独
+表现差，说明 semantic intent 不是一个可靠的零修复生成器；但 G 相比 E 把 held-out
+variant recall 从 58.3% 提高到 75.0%，held-out FP 保持 18.2%，并把 Verified 从 5/12
+提高到 8/12。因此当前 dev-set 决策是：生成主线采用 semantic intent + execution-guided
+diagnosis/minimal repair，Rule IR 只在最终规则生成后用于分析，不恢复生成期 compiler
+约束。完整快照位于
+[`benchmarks/experiments/semantic-intent-repair-v1`](benchmarks/experiments/semantic-intent-repair-v1/)。
+
+这仍是开发集结论，不是最终泛化结论。30-CVE test set 在架构、prompt、模型和 evaluator
+冻结前不得运行；封存流程见
+[`benchmarks/HIDDEN_TEST_PROTOCOL.md`](benchmarks/HIDDEN_TEST_PROTOCOL.md)。
+
+验证冻结产物：
+
+```powershell
+python -B benchmarks/freeze_v0_baseline.py --verify
+python -B benchmarks/freeze_direct_repair_experiment.py --verify
+python -B benchmarks/freeze_semantic_intent_experiment.py --verify
+python -B benchmarks/audit_ir_expressiveness.py
+```
 
 ## 环境
 
@@ -335,9 +429,11 @@ artifacts/
 ├── samples/                      # 每个正向变体和近似负样本的独立 PCAP
 ├── traffic-matrix.json           # 样本标签、来源、原因和路径
 ├── traffic-mutations.json        # 未执行 body mutation 的结构化原因
-├── generated.rules               # 通过验证且 SID 已固定的最终规则
-├── generated.rule-ir.json         # 最终规则的统一中间表示
-├── coverage-graph.json            # 候选覆盖关系、推荐 SID 和删除理由
+├── generated.rules               # 通过验证的漏洞特异主规则
+├── generated.rule-ir.json         # 主规则的统一中间表示
+├── supplemental.rules            # 通过响应 oracle 的攻击成功补充指标
+├── supplemental.rule-ir.json     # 补充指标的统一中间表示
+├── final-judgment.json            # 最终候选、语义理由和过拟合风险
 ├── failed-candidate.rules        # 达到重试上限时的最后候选
 ├── failed-candidate.rule-ir.json  # 失败候选存在时对应的 IR
 ├── validation-report.json        # 最终状态、逐样本结果和全部尝试

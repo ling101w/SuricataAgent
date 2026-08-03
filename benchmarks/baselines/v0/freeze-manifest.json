@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "name": "suricataagent-benchmark-v0-abc-baseline",
+  "frozen_at": "2026-08-02T14:09:07.365211+00:00",
+  "dataset_manifest": {
+    "path": "benchmarks/v0-manifest.json",
+    "sha256": "632936ebf84a8a1010669710b1f180a8107ba9b503f231e7bbe4fb41b40fbfc8"
+  },
+  "systems": [
+    "direct_llm",
+    "compiler",
+    "full_agent"
+  ],
+  "case_count": 12,
+  "result_count": 36,
+  "source_results": [
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2021-41773/result.json",
+      "sha256": "f308f77a2793fe2e9897bb6d72db33edae634180b280d28c4aaf28272e005d2e"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2021-43798/result.json",
+      "sha256": "c1b898e0151ed42e1bbd1fc3a1ff43f385d678f4d17bdbd831d67b3b28517b4e"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2021-26084/result.json",
+      "sha256": "2309a975c15198b67e96429f48354f6da72250ff1bc4c172d59988b366948253"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2018-7600/result.json",
+      "sha256": "c364a03708465981396c8373ed3b4adc340e4f3b3d169f33ff7b72d555ae4b32"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2023-38646/result.json",
+      "sha256": "22d969807f4f1cd7647684554245c0a25642378d0afddca5b7d62f6b61cf2dc8"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2024-36401/result.json",
+      "sha256": "8b1b0dacde216b7490f841969a8ba2fd7469704215755b150b374e5955548df2"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2022-22965/result.json",
+      "sha256": "365045409ff6bea0c695546cfb3676c6dc5b53fd3a4c74b914e639b8b9cead93"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2016-4437/result.json",
+      "sha256": "5aaeb7853911e557c9c07d438db6b1a3eced67361b11374a3b80c5fe59c846d0"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2014-3704/result.json",
+      "sha256": "db96365dfe642792ffee55f61675572a4b1bd1716431a61f27b46ce729c995cc"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2017-12629/result.json",
+      "sha256": "caf8bd74f4db24e27fe3992272363b29a23b370013c71e8bcb13ed1c1af805e0"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2021-40438/result.json",
+      "sha256": "8e87b4891daae200b99b62079a6298748ba812794d34d63835f77d731fa0a5e3"
+    },
+    {
+      "path": "benchmarks/results/direct_llm/CVE-2025-29927/result.json",
+      "sha256": "64f75b64db8b9d068fb181e57596beac4af9db6a5cf468e14cdffefb39e3caa8"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2021-41773/result.json",
+      "sha256": "09aaef7fde8734f47112a627ae003950adfba0040d08fc06899ad445ab78b4f2"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2021-43798/result.json",
+      "sha256": "bd18d20266661c56052016f39d9eb780a3d30a3f4f1bf4870233709185ce210f"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2021-26084/result.json",
+      "sha256": "b29b5973a4b6e1cbcadf9947b463330ad11cf07a0e56fd37505f7273e820ea9e"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2018-7600/result.json",
+      "sha256": "b5b1eccf210be13797d6fb29679f8a42dad5d4fcd1dfd464880ddef97af460e5"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2023-38646/result.json",
+      "sha256": "9843d3062d80a75685f984714da445d93c92eecd19a574af0a34d718d96b4741"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2024-36401/result.json",
+      "sha256": "e5d255cbe529cabf3eac5ed63d128321867a0df55a353334d6457814ac34bada"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2022-22965/result.json",
+      "sha256": "869afae52a25d01d08adb7c6fd26fdf6d8866aa3cddb12fe7ae683d2287b65f7"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2016-4437/result.json",
+      "sha256": "ca6cb9b62cc4361f060e3d4f599e8f71d3fa75aa8bcc16a1f3267a3c93063ec2"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2014-3704/result.json",
+      "sha256": "17c0da1a3e2104364f653a4325a5b3eb3f87da0d92c4ebb537b9433b30ce4ccb"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2017-12629/result.json",
+      "sha256": "3f9dfd3b63e35f42cd6f3faedc854fa5a5512a981998a0746bc82c5d0d4fe4d8"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2021-40438/result.json",
+      "sha256": "11295eeccddc8ae43fd76507a9741db868972581bd8803951c655fddecc5480b"
+    },
+    {
+      "path": "benchmarks/results/compiler/CVE-2025-29927/result.json",
+      "sha256": "9c8cc7e86641e2b582edf3f8895399e2dfa36fc287a876af83641e1f86e6842e"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2021-41773/result.json",
+      "sha256": "3f50617c044464dbb56e861e63f8b494ecdb1829c072c547cfff35d5d88677ca"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2021-43798/result.json",
+      "sha256": "79f8d0fac2231d5f1223756a7728d1e0f37491a9506a518b086e3d27ab773e86"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2021-26084/result.json",
+      "sha256": "4d68dff227e199b8f4369db53ea51b8be2100fba3f9f4d2a2f0024254a4fecc8"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2018-7600/result.json",
+      "sha256": "cb9ed123decf43ccb465d6928a3077407f348a722fc5e7297021ae66495e9b75"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2023-38646/result.json",
+      "sha256": "0931482253449bb475810917f3ebfdf71236fd691ca3779883ef71345f0b2fc3"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2024-36401/result.json",
+      "sha256": "790e20329075ffc1979cb8696797a4383afb74444e5845f4cf6227c07028455b"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2022-22965/result.json",
+      "sha256": "a871266bc7d2d2485a95c2fa635fe5f6b4032c23623ffb917e93fe1028a7d40b"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2016-4437/result.json",
+      "sha256": "79d4095bd33c10b8a5896c99093e146f124e09a99bf76f855decb88a21136b85"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2014-3704/result.json",
+      "sha256": "acdfabaa4a6c25cec8ea2adbff36e102dd4c099c457c6b02b53c8bd01b6c10d9"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2017-12629/result.json",
+      "sha256": "d6f016abd249870c1157272fa611799ebb3c997fb51e7f0750aee74ce1846c2e"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2021-40438/result.json",
+      "sha256": "7a740168d9deadc4dd0b900bc9c2efa6215efd762a01a573caa3b833b276e593"
+    },
+    {
+      "path": "benchmarks/results/full_agent/CVE-2025-29927/result.json",
+      "sha256": "9247b0bca863bc50cf2a03871fbdd2cd4a0e9e177f5248d7f6d5cfeb293aac5c"
+    }
+  ],
+  "direct_rules": [
+    {
+      "case_id": "CVE-2021-41773",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2021-41773.rules",
+      "sha256": "d1a852c4c08918bc5e79037e29c0cc4a34c53e20e1035b78a68496406f8e75df",
+      "source_path": "benchmarks/results/direct_llm/CVE-2021-41773/generated.rules",
+      "source_sha256": "d1a852c4c08918bc5e79037e29c0cc4a34c53e20e1035b78a68496406f8e75df"
+    },
+    {
+      "case_id": "CVE-2021-43798",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2021-43798.rules",
+      "sha256": "4e957794b21cc1a0c2895ec5abd356c69f9ae6e99b512832634bba2db123b54c",
+      "source_path": "benchmarks/results/direct_llm/CVE-2021-43798/generated.rules",
+      "source_sha256": "4e957794b21cc1a0c2895ec5abd356c69f9ae6e99b512832634bba2db123b54c"
+    },
+    {
+      "case_id": "CVE-2021-26084",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2021-26084.rules",
+      "sha256": "2c81a1ca949661a46eeebc2b33e0d971e64bb1a8a76058127b92138ad127d633",
+      "source_path": "benchmarks/results/direct_llm/CVE-2021-26084/generated.rules",
+      "source_sha256": "2c81a1ca949661a46eeebc2b33e0d971e64bb1a8a76058127b92138ad127d633"
+    },
+    {
+      "case_id": "CVE-2018-7600",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2018-7600.rules",
+      "sha256": "c24514ac412abf6bd8acec1ce29c710adeb9e06442d1bb7760a4a57a3b4b1036",
+      "source_path": "benchmarks/results/direct_llm/CVE-2018-7600/generated.rules",
+      "source_sha256": "c24514ac412abf6bd8acec1ce29c710adeb9e06442d1bb7760a4a57a3b4b1036"
+    },
+    {
+      "case_id": "CVE-2023-38646",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2023-38646.rules",
+      "sha256": "1126edb106998358fcbb3876474e0f9afb68e67c7e977623f6cf8a895daaad8a",
+      "source_path": "benchmarks/results/direct_llm/CVE-2023-38646/generated.rules",
+      "source_sha256": "1126edb106998358fcbb3876474e0f9afb68e67c7e977623f6cf8a895daaad8a"
+    },
+    {
+      "case_id": "CVE-2024-36401",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2024-36401.rules",
+      "sha256": "927d3b215d569af830102cff38227c1d3f11179a26ccbd95f346f37cf19971f3",
+      "source_path": "benchmarks/results/direct_llm/CVE-2024-36401/generated.rules",
+      "source_sha256": "927d3b215d569af830102cff38227c1d3f11179a26ccbd95f346f37cf19971f3"
+    },
+    {
+      "case_id": "CVE-2022-22965",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2022-22965.rules",
+      "sha256": "a6f2386f562aa21b3299e2cdc5138812b0554db8e9ec02e2ae083f06f224c161",
+      "source_path": "benchmarks/results/direct_llm/CVE-2022-22965/generated.rules",
+      "source_sha256": "a6f2386f562aa21b3299e2cdc5138812b0554db8e9ec02e2ae083f06f224c161"
+    },
+    {
+      "case_id": "CVE-2016-4437",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2016-4437.rules",
+      "sha256": "e8b607eb12e261be14a53e7a67998cb59ebcdd0016a71ef21abf1ffaaf43d973",
+      "source_path": "benchmarks/results/direct_llm/CVE-2016-4437/generated.rules",
+      "source_sha256": "e8b607eb12e261be14a53e7a67998cb59ebcdd0016a71ef21abf1ffaaf43d973"
+    },
+    {
+      "case_id": "CVE-2014-3704",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2014-3704.rules",
+      "sha256": "8c24e842eaa19f4c1cb5cd52600d3e05b804d02367d26d109ee1e6f450d8a61a",
+      "source_path": "benchmarks/results/direct_llm/CVE-2014-3704/generated.rules",
+      "source_sha256": "8c24e842eaa19f4c1cb5cd52600d3e05b804d02367d26d109ee1e6f450d8a61a"
+    },
+    {
+      "case_id": "CVE-2017-12629",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2017-12629.rules",
+      "sha256": "37e28af0b73029a1629964b23a7dcdf63785824c59f4d9ae1b805a404d2d4bc2",
+      "source_path": "benchmarks/results/direct_llm/CVE-2017-12629/generated.rules",
+      "source_sha256": "37e28af0b73029a1629964b23a7dcdf63785824c59f4d9ae1b805a404d2d4bc2"
+    },
+    {
+      "case_id": "CVE-2021-40438",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2021-40438.rules",
+      "sha256": "50f3bcb313d1898961dd20c6debd690e21c8b31e696bea82b3e94d2afda49360",
+      "source_path": "benchmarks/results/direct_llm/CVE-2021-40438/generated.rules",
+      "source_sha256": "50f3bcb313d1898961dd20c6debd690e21c8b31e696bea82b3e94d2afda49360"
+    },
+    {
+      "case_id": "CVE-2025-29927",
+      "path": "benchmarks/baselines/v0/direct-rules/CVE-2025-29927.rules",
+      "sha256": "e98de49fb50602b5cd9503ab73b9389c6d67a0cf330024290aa77883bbf3c291",
+      "source_path": "benchmarks/results/direct_llm/CVE-2025-29927/generated.rules",
+      "source_sha256": "e98de49fb50602b5cd9503ab73b9389c6d67a0cf330024290aa77883bbf3c291"
+    }
+  ],
+  "artifacts": {
+    "summary.json": "633461ab074b6a7fb3bad9922fd7672c07c52bf9343bf89e0b90740f88b3cd1a",
+    "summary.csv": "915f2dc903fb31c5901773d9917e46db06132c494bca03301c422a8e62488a24",
+    "results.csv": "49e44920f011fadc39e90ce528dffa71f6eb98a2f29d84a0d15122412f216cc6"
+  }
+}

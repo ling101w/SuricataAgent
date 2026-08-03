@@ -11,7 +11,7 @@ Direction = Literal["request", "response"]
 CandidateRole = Literal["precision", "robust", "alternative_evidence"]
 DetectionScope = Literal["case_specific", "exploit_family", "success_indicator"]
 
-# 模型输出、schema 解析和批量编译共同遵守固定的候选角色契约。
+# role 是策略提示，不再是固定的三候选流水线位置。
 CANDIDATE_ROLES: tuple[CandidateRole, ...] = (
     "precision",
     "robust",
@@ -30,14 +30,12 @@ def candidate_detection_scope(
     role: CandidateRole,
     direction: Direction,
 ) -> DetectionScope:
-    """根据固定角色契约确定检测层级，禁止由模型自由抬高候选优先级。"""
+    """根据策略类型和方向确定检测层级，禁止模型自由抬高优先级。"""
     if role == "alternative_evidence" and direction == "response":
         return "success_indicator"
     return "case_specific"
-REQUIRED_CANDIDATE_COUNT = len(CANDIDATE_ROLES)
-# 保留原常量名供现有调用方使用，但上下界现在都严格等于三个候选。
-MIN_CANDIDATES = REQUIRED_CANDIDATE_COUNT
-MAX_CANDIDATES = REQUIRED_CANDIDATE_COUNT
+MIN_CANDIDATES = 1
+MAX_CANDIDATES = 3
 
 POSITIVE_COVERAGE_WEIGHT = 100.0
 FALSE_POSITIVE_PENALTY = 50
@@ -158,12 +156,17 @@ _REQUEST_LINE_TARGET_RE = re.compile(
 
 def candidate_count_is_valid(count: int) -> bool:
     """判断候选数量是否满足模型输出和批量编译契约。"""
-    return count == REQUIRED_CANDIDATE_COUNT
+    return MIN_CANDIDATES <= count <= MAX_CANDIDATES
 
 
 def candidate_roles_are_valid(roles: Sequence[str]) -> bool:
-    """判断候选是否严格按固定角色顺序出现，且每个角色只出现一次。"""
-    return tuple(roles) == CANDIDATE_ROLES
+    """role 只作策略分类；已提供的角色必须有效且不能重复。"""
+    values = tuple(roles)
+    return (
+        candidate_count_is_valid(len(values))
+        and len(set(values)) == len(values)
+        and all(role in CANDIDATE_ROLES for role in values)
+    )
 
 
 def buffers_for_direction(direction: Direction) -> frozenset[str]:
@@ -243,7 +246,6 @@ __all__ = [
     "PCRE_PENALTY",
     "POSITIVE_COVERAGE_WEIGHT",
     "REQUEST_BUFFERS",
-    "REQUIRED_CANDIDATE_COUNT",
     "RESPONSE_BUFFERS",
     "SHARED_BUFFERS",
     "SUPPORTED_BUFFERS",

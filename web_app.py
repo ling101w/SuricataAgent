@@ -209,7 +209,7 @@ def _create_job(case_id: str, options: RunOptions) -> dict[str, Any]:
         "selected_candidate": None,
         "sample_matrix": [],
         "mutation_skips": [],
-        "coverage_graph": None,
+        "final_judgment": None,
         "rule_ir": None,
         "attempts": [],
         "progress": _new_progress(),
@@ -288,8 +288,8 @@ def _record_node(job_id: str, node: str, state: dict[str, Any]) -> None:
             job["mutation_skips"] = [
                 dict(item) for item in state.get("mutation_skips", [])
             ]
-        if state.get("coverage_graph") is not None:
-            job["coverage_graph"] = dict(state["coverage_graph"])
+        if state.get("final_judgment") is not None:
+            job["final_judgment"] = dict(state["final_judgment"])
         if state.get("selected_rule_ir") is not None:
             job["rule_ir"] = dict(state["selected_rule_ir"])
         if state.get("attempts"):
@@ -362,7 +362,6 @@ def _attempt_summaries(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     for key in (
                         "candidate_index",
                         "evaluation_sid",
-                        "coverage_sid",
                         "final_sid",
                         "role",
                         "detection_scope",
@@ -381,6 +380,7 @@ def _attempt_summaries(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         "compile_error",
                         "lint_issues",
                         "complexity",
+                        "reference_metrics",
                         "score",
                         "passed",
                         "selected",
@@ -411,7 +411,7 @@ def _attempt_summaries(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 else None
             ),
             "diagnosis": value.get("diagnosis"),
-            "coverage_graph": value.get("coverage_graph"),
+            "final_judgment": value.get("final_judgment"),
             "selected_rule_ir": value.get("selected_rule_ir"),
             "strategy_context": value.get("strategy_context", []),
             "candidates": candidates,
@@ -440,7 +440,7 @@ def _collect_artifacts(job: dict[str, Any]) -> None:
         "rule_ir": output_dir / "generated.rule-ir.json",
         "supplemental_rules": output_dir / "supplemental.rules",
         "supplemental_rule_ir": output_dir / "supplemental.rule-ir.json",
-        "coverage": output_dir / "coverage-graph.json",
+        "final_judgment": output_dir / "final-judgment.json",
     }
     if not candidates["rules"].is_file():
         candidates["rules"] = output_dir / "failed-candidate.rules"
@@ -486,8 +486,8 @@ def _finish_job(job_id: str, state: dict[str, Any]) -> None:
             job["mutation_skips"] = [
                 dict(item) for item in state.get("mutation_skips", [])
             ]
-        if state.get("coverage_graph") is not None:
-            job["coverage_graph"] = dict(state["coverage_graph"])
+        if state.get("final_judgment") is not None:
+            job["final_judgment"] = dict(state["final_judgment"])
         if state.get("selected_rule_ir") is not None:
             job["rule_ir"] = dict(state["selected_rule_ir"])
         if state.get("attempts"):
@@ -611,7 +611,7 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
         "validation": job["validation"],
         "sample_matrix": [dict(item) for item in job["sample_matrix"]],
         "mutation_skips": [dict(item) for item in job["mutation_skips"]],
-        "coverage_graph": job["coverage_graph"],
+        "final_judgment": job["final_judgment"],
         "rule_ir": job["rule_ir"],
         "attempts": [dict(item) for item in job["attempts"]],
         "progress": [dict(item) for item in job["progress"]],
@@ -718,7 +718,7 @@ def download_artifact(
         "mutations",
         "rule_ir",
         "supplemental_rule_ir",
-        "coverage",
+        "final_judgment",
     ],
 ):
     with _jobs_lock:
@@ -734,7 +734,7 @@ def download_artifact(
         "mutations": "application/json",
         "rule_ir": "application/json",
         "supplemental_rule_ir": "application/json",
-        "coverage": "application/json",
+        "final_judgment": "application/json",
     }
     return FileResponse(
         path,

@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "name": "suricataagent-benchmark-v0",
+  "split": "dev",
+  "case_count": 12,
+  "pcap_count": 60,
+  "model_visible_file": "input.json",
+  "evaluator_only_files": [
+    "oracle.json",
+    "pcaps/*",
+    "reference.rules"
+  ],
+  "cases": [
+    {
+      "case_id": "CVE-2021-41773",
+      "family": "path_traversal",
+      "path": "cases/CVE-2021-41773",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2021-43798",
+      "family": "file_read",
+      "path": "cases/CVE-2021-43798",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2021-26084",
+      "family": "ognl_injection",
+      "path": "cases/CVE-2021-26084",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2018-7600",
+      "family": "rce",
+      "path": "cases/CVE-2018-7600",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2023-38646",
+      "family": "preauth_rce",
+      "path": "cases/CVE-2023-38646",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2024-36401",
+      "family": "expression_rce",
+      "path": "cases/CVE-2024-36401",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2022-22965",
+      "family": "spring4shell",
+      "path": "cases/CVE-2022-22965",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2016-4437",
+      "family": "deserialization",
+      "path": "cases/CVE-2016-4437",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2014-3704",
+      "family": "sqli",
+      "path": "cases/CVE-2014-3704",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2017-12629",
+      "family": "xxe",
+      "path": "cases/CVE-2017-12629",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2021-40438",
+      "family": "ssrf",
+      "path": "cases/CVE-2021-40438",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    },
+    {
+      "case_id": "CVE-2025-29927",
+      "family": "auth_bypass",
+      "path": "cases/CVE-2025-29927",
+      "split": "dev",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false
+    }
+  ]
+}

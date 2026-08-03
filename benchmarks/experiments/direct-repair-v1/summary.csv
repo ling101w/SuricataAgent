@@ -1,0 +1,6 @@
+system,case_total,syntax_pass_rate,original_detection_rate,variant_recall,false_positive_rate,verified_rule_rate,verified_cases,negative_samples_unevaluated,heldout_variant_recall,heldout_false_positive_rate,heldout_negative_samples_unevaluated,avg_repair_attempts,avg_latency_ms
+direct_llm,12,0.833333,0.75,0.541667,0.05,0.333333,4,4,0.583333,0.1,2,,31028.0
+compiler,12,0.333333,0.333333,0.041667,0.0,0.0,0,16,0.0,0.0,8,,36736.25
+full_agent,12,0.5,0.5,0.125,0.0,0.0,0,12,0.166667,0.0,6,1.333,76121.333
+direct_validator,12,0.833333,0.75,0.541667,0.05,0.333333,4,4,0.583333,0.1,2,,31028.0
+direct_repair,12,0.916667,0.833333,0.708333,0.090909,0.416667,5,2,0.583333,0.181818,1,0.667,62277.083

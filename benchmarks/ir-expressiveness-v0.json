@@ -1,0 +1,379 @@
+{
+  "version": 1,
+  "name": "benchmark-v0-direct-rule-generation-ir-expressiveness",
+  "baseline": "benchmarks/baselines/v0",
+  "scope": "Current DetectionPlan/DetectionFeature generation schema and compiler",
+  "summary": {
+    "rule_total": 12,
+    "post_generation_ir_parse_rate": 0.916667,
+    "schema_accept_rate": 0.583333,
+    "compiler_accept_rate": 0.5,
+    "detection_lossless_rate": 0.25,
+    "text_lossless_rate": 0.0,
+    "status_counts": {
+      "lossy": 3,
+      "optimizer_loss_only": 3,
+      "unsupported": 6
+    }
+  },
+  "cases": [
+    {
+      "case_id": "CVE-2014-3704",
+      "direct_syntax_ok": true,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 2,
+      "pcre_count": 1,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.request_body"
+      ],
+      "schema_accepted_roles": [
+        "alternative_evidence"
+      ],
+      "compiler_accepted_roles": [
+        "alternative_evidence"
+      ],
+      "semantic_loss_options": [],
+      "optimizer_loss_options": [
+        "fast_pattern"
+      ],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates：precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据",
+        "robust": "$.candidates：robust 候选必须保留最小 endpoint 身份锚点"
+      },
+      "compiler_rejections": {},
+      "lossless_detection": true,
+      "lossless_text": false,
+      "status": "optimizer_loss_only"
+    },
+    {
+      "case_id": "CVE-2016-4437",
+      "direct_syntax_ok": false,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 2,
+      "pcre_count": 1,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.cookie"
+      ],
+      "schema_accepted_roles": [
+        "alternative_evidence"
+      ],
+      "compiler_accepted_roles": [],
+      "semantic_loss_options": [],
+      "optimizer_loss_options": [
+        "fast_pattern"
+      ],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates：precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据",
+        "robust": "$.candidates：robust 候选必须保留最小 endpoint 身份锚点"
+      },
+      "compiler_rejections": {
+        "alternative_evidence": "候选规则未通过质量检查：第 1 个特征不能匹配动态字段 Cookie；第 2 个特征不能匹配动态字段 Cookie；第 2 个特征的 PCRE 不能直接包含引号或分号，请改用 \\x22 或 \\x3b"
+      },
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "unsupported"
+    },
+    {
+      "case_id": "CVE-2017-12629",
+      "direct_syntax_ok": true,
+      "direct_verified": true,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 6,
+      "pcre_count": 0,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.uri"
+      ],
+      "schema_accepted_roles": [],
+      "compiler_accepted_roles": [],
+      "semantic_loss_options": [
+        "startswith"
+      ],
+      "optimizer_loss_options": [],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates：precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据",
+        "robust": "$.candidates：robust 候选必须包含非结构性的利用证据",
+        "alternative_evidence": "$.candidates：alternative_evidence 请求候选必须包含非结构性的利用证据"
+      },
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "unsupported"
+    },
+    {
+      "case_id": "CVE-2018-7600",
+      "direct_syntax_ok": true,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 6,
+      "pcre_count": 0,
+      "sticky_buffer_count": 2,
+      "sticky_buffers": [
+        "http.request_body",
+        "http.uri"
+      ],
+      "schema_accepted_roles": [
+        "precision",
+        "robust",
+        "alternative_evidence"
+      ],
+      "compiler_accepted_roles": [
+        "precision",
+        "robust",
+        "alternative_evidence"
+      ],
+      "semantic_loss_options": [
+        "startswith"
+      ],
+      "optimizer_loss_options": [],
+      "structural_issues": [],
+      "schema_rejections": {},
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "lossy"
+    },
+    {
+      "case_id": "CVE-2021-26084",
+      "direct_syntax_ok": true,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 4,
+      "pcre_count": 0,
+      "sticky_buffer_count": 2,
+      "sticky_buffers": [
+        "http.request_body",
+        "http.uri"
+      ],
+      "schema_accepted_roles": [
+        "precision",
+        "robust",
+        "alternative_evidence"
+      ],
+      "compiler_accepted_roles": [
+        "precision",
+        "robust",
+        "alternative_evidence"
+      ],
+      "semantic_loss_options": [
+        "distance:0",
+        "within:200",
+        "within:512"
+      ],
+      "optimizer_loss_options": [
+        "fast_pattern"
+      ],
+      "structural_issues": [],
+      "schema_rejections": {},
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "lossy"
+    },
+    {
+      "case_id": "CVE-2021-40438",
+      "direct_syntax_ok": false,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": false,
+      "schema_accepted_roles": [],
+      "compiler_accepted_roles": [],
+      "semantic_loss_options": [],
+      "optimizer_loss_options": [],
+      "structural_issues": [
+        {
+          "code": "POST_GENERATION_IR_PARSE_ERROR",
+          "detail": "第 1 条规则，第 1 行：content 十六进制块缺少结束竖线"
+        }
+      ],
+      "schema_rejections": {},
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "unsupported"
+    },
+    {
+      "case_id": "CVE-2021-41773",
+      "direct_syntax_ok": true,
+      "direct_verified": true,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 2,
+      "pcre_count": 1,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.uri.raw"
+      ],
+      "schema_accepted_roles": [
+        "alternative_evidence"
+      ],
+      "compiler_accepted_roles": [
+        "alternative_evidence"
+      ],
+      "semantic_loss_options": [],
+      "optimizer_loss_options": [
+        "fast_pattern"
+      ],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates：precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据",
+        "robust": "$.candidates：robust 候选必须保留最小 endpoint 身份锚点"
+      },
+      "compiler_rejections": {},
+      "lossless_detection": true,
+      "lossless_text": false,
+      "status": "optimizer_loss_only"
+    },
+    {
+      "case_id": "CVE-2021-43798",
+      "direct_syntax_ok": true,
+      "direct_verified": true,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 2,
+      "pcre_count": 1,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.uri.raw"
+      ],
+      "schema_accepted_roles": [
+        "precision",
+        "robust",
+        "alternative_evidence"
+      ],
+      "compiler_accepted_roles": [
+        "precision",
+        "robust",
+        "alternative_evidence"
+      ],
+      "semantic_loss_options": [
+        "startswith"
+      ],
+      "optimizer_loss_options": [],
+      "structural_issues": [],
+      "schema_rejections": {},
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "lossy"
+    },
+    {
+      "case_id": "CVE-2022-22965",
+      "direct_syntax_ok": true,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 2,
+      "pcre_count": 1,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.uri"
+      ],
+      "schema_accepted_roles": [],
+      "compiler_accepted_roles": [],
+      "semantic_loss_options": [],
+      "optimizer_loss_options": [
+        "fast_pattern"
+      ],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates：precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据",
+        "robust": "$.candidates：robust 候选必须保留最小 endpoint 身份锚点",
+        "alternative_evidence": "$.candidates：alternative_evidence 请求候选必须包含非结构性的利用证据"
+      },
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "unsupported"
+    },
+    {
+      "case_id": "CVE-2023-38646",
+      "direct_syntax_ok": true,
+      "direct_verified": true,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 2,
+      "pcre_count": 1,
+      "sticky_buffer_count": 2,
+      "sticky_buffers": [
+        "http.request_body",
+        "http.uri"
+      ],
+      "schema_accepted_roles": [],
+      "compiler_accepted_roles": [],
+      "semantic_loss_options": [
+        "startswith"
+      ],
+      "optimizer_loss_options": [],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates[0].features[1].pcre：前面必须有同一连续 sticky buffer 中的 content 锚点",
+        "robust": "$.candidates[0].features[1].pcre：前面必须有同一连续 sticky buffer 中的 content 锚点",
+        "alternative_evidence": "$.candidates[0].features[1].pcre：前面必须有同一连续 sticky buffer 中的 content 锚点"
+      },
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "unsupported"
+    },
+    {
+      "case_id": "CVE-2024-36401",
+      "direct_syntax_ok": true,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 5,
+      "pcre_count": 0,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.uri"
+      ],
+      "schema_accepted_roles": [],
+      "compiler_accepted_roles": [],
+      "semantic_loss_options": [],
+      "optimizer_loss_options": [],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates：precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据",
+        "robust": "$.candidates：robust 候选必须包含非结构性的利用证据",
+        "alternative_evidence": "$.candidates：alternative_evidence 请求候选必须包含非结构性的利用证据"
+      },
+      "compiler_rejections": {},
+      "lossless_detection": false,
+      "lossless_text": false,
+      "status": "unsupported"
+    },
+    {
+      "case_id": "CVE-2025-29927",
+      "direct_syntax_ok": true,
+      "direct_verified": false,
+      "post_generation_ir_parse_ok": true,
+      "feature_count": 2,
+      "pcre_count": 1,
+      "sticky_buffer_count": 1,
+      "sticky_buffers": [
+        "http.header"
+      ],
+      "schema_accepted_roles": [
+        "alternative_evidence"
+      ],
+      "compiler_accepted_roles": [
+        "alternative_evidence"
+      ],
+      "semantic_loss_options": [],
+      "optimizer_loss_options": [
+        "fast_pattern"
+      ],
+      "structural_issues": [],
+      "schema_rejections": {
+        "precision": "$.candidates：precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据",
+        "robust": "$.candidates：robust 候选必须保留最小 endpoint 身份锚点"
+      },
+      "compiler_rejections": {},
+      "lossless_detection": true,
+      "lossless_text": false,
+      "status": "optimizer_loss_only"
+    }
+  ]
+}

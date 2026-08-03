@@ -277,3 +277,39 @@ def test_passwd_response_variants_cover_stable_evidence_and_decoys() -> None:
         assert expected == ("alert" if name.startswith("positive-") else "no_alert")
         _assert_response_content_length(raw_response)
     assert len({cases[name][1] for name in positive_names}) >= 4
+
+
+def test_passwd_response_accepts_pdf_type_and_bare_samesite_cookie_attribute() -> None:
+    request = (
+        b"GET /viewPDF?pdfUrl=file:///etc/passwd HTTP/1.1\r\n"
+        b"Host: example.invalid\r\n\r\n"
+    )
+    body = (
+        b"root:x:0:0:root:/root:/bin/bash\n"
+        b"daemon:x:2:2:daemon:/sbin:/sbin/nologin\n"
+    )
+    response = (
+        b"HTTP/1.1 200\r\n"
+        b"Content-Type: application/pdf;charset=UTF-8\r\n"
+        b"Set-Cookie: JSESSIONID=test; Path=/; HttpOnly=true\r\n"
+        b"SameSite=Lax\r\n"
+        + f"Content-Length: {len(body)}".encode("ascii")
+        + b"\r\n\r\n"
+        + body
+    )
+
+    parsed = parse_http_response(response)
+    set_cookie = next(
+        value for name, value in parsed.headers if name.casefold() == "set-cookie"
+    )
+    assert set_cookie.endswith("; SameSite=Lax")
+
+    names = {
+        name
+        for name, _expected, _reason, _request, _response, _mss in derive_http_cases(
+            request,
+            response,
+        )
+    }
+    assert "positive-response-passwd-root-only" in names
+    assert "negative-response-passwd-documentation-decoy" in names

@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from main import WorkflowConfig, build_workflow
+from final_judge import FinalJudgment
 from traffic_cases import MutationSkip, TrafficSample, TrafficSampleList
 
 
@@ -117,7 +118,7 @@ def _validation(rules: str, samples: list[TrafficSample], **_kwargs: object):
     }
 
 
-def test_workflow_persists_mutation_ir_fingerprint_and_coverage_graph(
+def test_workflow_persists_mutation_ir_fingerprint_and_final_judgment(
     tmp_path: Path,
 ) -> None:
     source_pcap = tmp_path / "source.pcap"
@@ -204,6 +205,11 @@ def test_workflow_persists_mutation_ir_fingerprint_and_coverage_graph(
         traffic_builder=traffic_builder,
         feature_extractor=feature_extractor,
         matrix_validator=_validation,
+        candidate_judge=lambda **_kwargs: FinalJudgment(
+            selected_candidate=2,
+            reason="更少绑定具体 payload，同时保留 endpoint",
+            overfitting_risks=("仍需扩大正常流量集",),
+        ),
     )
     output_dir = tmp_path / "artifacts"
     state = graph.invoke(
@@ -226,7 +232,8 @@ def test_workflow_persists_mutation_ir_fingerprint_and_coverage_graph(
     assert (output_dir / "generated.rule-ir.json").is_file()
     assert (output_dir / "supplemental.rules").is_file()
     assert (output_dir / "supplemental.rule-ir.json").is_file()
-    assert (output_dir / "coverage-graph.json").is_file()
+    assert (output_dir / "final-judgment.json").is_file()
+    assert not (output_dir / "coverage-graph.json").exists()
 
     primary_rules = (output_dir / "generated.rules").read_text(encoding="utf-8")
     supplemental_rules = (output_dir / "supplemental.rules").read_text(
@@ -246,18 +253,12 @@ def test_workflow_persists_mutation_ir_fingerprint_and_coverage_graph(
     assert report["rule_ir"]["sid"] == 123
     assert report["supplemental_rules"] == "supplemental.rules"
     assert [item["sid"] for item in report["supplemental_rule_ir"]] == [124]
-    assert report["coverage_graph"]["covered_positive_samples"] == [
-        "positive-original",
-        "positive-response-oracle",
-    ]
-    assert report["coverage_graph"]["sid_namespace"] == "delivery_mapped"
-    assert report["coverage_graph"]["selected_final_sid"] == 123
-    assert report["coverage_graph"]["recommended_by_scope"]["case_specific"] == [
-        123
-    ]
-    assert report["coverage_graph"]["recommended_by_scope"][
-        "success_indicator"
-    ] == [124]
+    assert report["final_judgment"] == {
+        "selected_candidate": 2,
+        "reason": "更少绑定具体 payload，同时保留 endpoint",
+        "overfitting_risks": ["仍需扩大正常流量集"],
+        "source": "llm_final_judge",
+    }
     assert report["strategy_context"][0]["cluster_id"] == "strategy:v1:path"
     assert extractor_calls[0]["strategy_context"][0]["cluster_id"] == (
         "strategy:v1:path"
@@ -278,7 +279,7 @@ def test_workflow_persists_mutation_ir_fingerprint_and_coverage_graph(
     selected = next(item for item in candidates if item["selected"])
     assert selected["detection_scope"] == "case_specific"
     assert selected["selection_tier"] == "primary"
-    assert selected["coverage_sid"] == 123
+    assert selected["candidate_index"] == 2
     assert selected["final_sid"] == 123
     assert "metadata:detection_scope case_specific" in selected["final_rule"]
     assert selected["delivered"] is True
@@ -290,7 +291,6 @@ def test_workflow_persists_mutation_ir_fingerprint_and_coverage_graph(
     assert supplemental["selected"] is False
     assert supplemental["delivered"] is True
     assert supplemental["final_sid"] == 124
-    assert supplemental["coverage_sid"] == 124
     assert "sid:124" in supplemental["supplemental_final_rule"]
     assert supplemental["supplemental_rule_ir"]["sid"] == 124
     assert supplemental["final_rule"] is None
@@ -306,9 +306,10 @@ def test_workflow_persists_mutation_ir_fingerprint_and_coverage_graph(
     )
     assert archived_supplemental["delivered"] is True
     assert archived_supplemental["final_sid"] == 124
-    assert 123 in {
-        node["sid"] for node in report["coverage_graph"]["nodes"]
-    }
+    archived_judgment = json.loads(
+        (attempt_dir / "final-judgment.json").read_text(encoding="utf-8")
+    )
+    assert archived_judgment["selected_candidate"] == 2
 
 
 def test_web_artifact_catalog_exposes_supplemental_download_kinds(

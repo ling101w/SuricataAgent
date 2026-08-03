@@ -10,5 +10,7 @@ artifacts/
 benchmark-artifacts/
 rule-library-analysis/
 .benchmark-*/
+/benchmarks/suricata-verify/
+/benchmarks/results/*/
 /suricata/
 /scope-check.rules

@@ -14,7 +14,6 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from coverage_graph import analyze_rule_coverage
 from detection_strategy import retrieve_strategy_clusters, validate_strategy_catalog
 from diagnosis import diagnose_candidate
 from evidence_fingerprint import (
@@ -25,6 +24,7 @@ from evidence_fingerprint import (
 from generate_pcap import PcapConfig
 from generate_rules import ChatModel, extract_detection_features
 from generate_tools import create_chat_model
+from final_judge import FinalJudgment, judge_passing_candidates
 from rule_knowledge import (
     CANDIDATE_ROLE_GUIDANCE,
     FALSE_POSITIVE_PENALTY,
@@ -38,7 +38,11 @@ from rule_compiler import (
     compile_candidate,
     parse_detection_json,
 )
-from traffic_cases import TrafficSample, build_traffic_matrix
+from traffic_cases import (
+    TrafficSample,
+    build_traffic_matrix,
+    materialize_semantic_testcases,
+)
 from validate_rules import (
     RulePolicy,
     RuleValidationResult,
@@ -60,7 +64,7 @@ class AttemptRecord(TypedDict, total=False):
     selected_rule: str | None
     validation: RuleValidationResult | None
     diagnosis: dict[str, Any] | None
-    coverage_graph: dict[str, Any] | None
+    final_judgment: dict[str, Any] | None
     selected_rule_ir: dict[str, Any] | None
     supplemental_rules: str
     supplemental_rule_irs: list[dict[str, Any]]
@@ -92,7 +96,7 @@ class GenState(TypedDict, total=False):
     status: Literal["running", "passed", "failed"]
     runtime_check: SuricataRuntimeCheck
     validation_result: RuleValidationResult | None
-    coverage_graph: dict[str, Any] | None
+    final_judgment: dict[str, Any] | None
     selected_rule_ir: dict[str, Any] | None
     supplemental_rules: str
     supplemental_rule_irs: list[dict[str, Any]]
@@ -253,8 +257,8 @@ def _persist_attempt(output_dir: str | Path, record: AttemptRecord) -> None:
             attempt_dir / "supplemental.rule-ir.json",
             {"rules": supplemental_rule_irs},
         )
-    if record.get("coverage_graph") is not None:
-        _write_json(attempt_dir / "coverage-graph.json", record["coverage_graph"])
+    if record.get("final_judgment") is not None:
+        _write_json(attempt_dir / "final-judgment.json", record["final_judgment"])
     if record.get("validation") is not None:
         _write_json(attempt_dir / "validation.json", record["validation"])
     if record.get("diagnosis") is not None:
@@ -445,110 +449,33 @@ def _remap_validation_sid(
     return result
 
 
-def _remap_candidate_coverage_sids(
-    coverage_graph: Mapping[str, Any] | None,
-    delivery_sids: Mapping[int, int],
-    *,
-    selected_evaluation_sid: int,
-    selected_final_sid: int,
-) -> tuple[dict[str, Any] | None, dict[int, int]]:
-    """把主规则和补充规则映射到交付 SID，并保持图中 SID 唯一。"""
-    if coverage_graph is None:
-        return None, dict(delivery_sids)
-
-    nodes = coverage_graph.get("nodes", [])
-    graph_sids = {
-        int(item["sid"])
-        for item in nodes
-        if isinstance(item, Mapping) and isinstance(item.get("sid"), int)
-    }
-    mapping = {
-        source_sid: target_sid
-        for source_sid, target_sid in delivery_sids.items()
-        if source_sid in graph_sids
-    }
-    if len(set(mapping.values())) != len(mapping):
-        raise ValueError("多个候选不能映射到同一个交付 SID")
-
-    used_targets = set(mapping.values())
-    remaining_sources = sorted(graph_sids - mapping.keys())
-    for source_sid in tuple(remaining_sources):
-        if source_sid in used_targets:
-            continue
-        mapping[source_sid] = source_sid
-        used_targets.add(source_sid)
-        remaining_sources.remove(source_sid)
-
-    available_targets = sorted(graph_sids - used_targets)
-    if len(available_targets) < len(remaining_sources):
-        raise ValueError("Coverage Graph SID 映射无法保持唯一")
-    for source_sid, target_sid in zip(remaining_sources, available_targets):
-        mapping[source_sid] = target_sid
-
-    def remap(value: object) -> object:
-        return mapping.get(value, value) if isinstance(value, int) else value
-
-    result = dict(coverage_graph)
-    result["nodes"] = [
-        {**dict(item), "sid": remap(item.get("sid"))}
-        for item in nodes
-        if isinstance(item, Mapping)
-    ]
-    result["relations"] = [
-        {
-            **dict(item),
-            "source_sid": remap(item.get("source_sid")),
-            "target_sid": remap(item.get("target_sid")),
-        }
-        for item in coverage_graph.get("relations", [])
-        if isinstance(item, Mapping)
-    ]
-    result["recommended_sids"] = [
-        remap(value) for value in coverage_graph.get("recommended_sids", [])
-    ]
-    result["recommended_by_scope"] = {
-        str(scope): [remap(value) for value in values]
-        for scope, values in coverage_graph.get("recommended_by_scope", {}).items()
-        if isinstance(values, Sequence) and not isinstance(values, (str, bytes))
-    }
-    result["recommendations"] = [
-        {
-            **dict(item),
-            "sid": remap(item.get("sid")),
-            "replaced_by_sid": remap(item.get("replaced_by_sid")),
-        }
-        for item in coverage_graph.get("recommendations", [])
-        if isinstance(item, Mapping)
-    ]
-    result["sid_namespace"] = "delivery_mapped"
-    result["selected_evaluation_sid"] = selected_evaluation_sid
-    result["selected_final_sid"] = selected_final_sid
-    result["delivery_sid_by_evaluation"] = {
-        str(sid): target for sid, target in sorted(delivery_sids.items())
-    }
-    result["evaluation_sid_mapping"] = {
-        str(sid): mapped for sid, mapped in sorted(mapping.items())
-    }
-    return result, mapping
-
-
-def _score_candidate(
+def _candidate_reference_metrics(
     validation: RuleValidationResult,
     complexity: Mapping[str, Any],
-) -> float:
-    """按覆盖率、误报和 PCRE 使用量计算确定性分数。"""
-    return round(
-        float(validation.get("positive_coverage", 0.0)) * POSITIVE_COVERAGE_WEIGHT
-        - int(validation.get("false_positive_count", 0)) * FALSE_POSITIVE_PENALTY
-        - int(complexity.get("pcre_count", 0)) * PCRE_PENALTY,
-        3,
-    )
+) -> dict[str, Any]:
+    """提供可比较事实和旧启发式值；它们只作排序参考，不证明最佳。"""
+    coverage = float(validation.get("positive_coverage", 0.0))
+    false_positives = int(validation.get("false_positive_count", 0))
+    pcre_count = int(complexity.get("pcre_count", 0))
+    return {
+        "positive_coverage": coverage,
+        "false_positive_count": false_positives,
+        "estimated_cost": int(complexity.get("estimated_cost", 0)),
+        "pcre_count": pcre_count,
+        "heuristic_rank_value": round(
+            coverage * POSITIVE_COVERAGE_WEIGHT
+            - false_positives * FALSE_POSITIVE_PENALTY
+            - pcre_count * PCRE_PENALTY,
+            3,
+        ),
+        "decision_authority": "reference_only",
+    }
 
 
-def _select_primary_candidate(
+def _deterministic_primary_fallback(
     candidate_results: Sequence[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    """先按检测层级筛出主规则，再在同层内比较覆盖率和成本。"""
+    """只用于没有多个通过候选时或 Final Judge 故障时的确定性兜底。"""
     primary = [
         item
         for item in candidate_results
@@ -562,11 +489,8 @@ def _select_primary_candidate(
     return max(
         pool,
         key=lambda item: (
-            (
-                float(item["score"])
-                if item.get("score") is not None
-                else -1_000_000.0
-            ),
+            float((item.get("reference_metrics") or {}).get("positive_coverage", 0.0)),
+            -int((item.get("reference_metrics") or {}).get("false_positive_count", 0)),
             -int((item.get("complexity") or {}).get("estimated_cost", 0)),
             -int(item["candidate_index"]),
         ),
@@ -601,13 +525,13 @@ def _repair_feedback(
     return {
         "diagnosis": dict(diagnosis),
         "failed_samples": failed_samples,
-        "candidate_scores": [
+        "candidate_metrics": [
             {
                 "candidate_index": item.get("candidate_index"),
                 "role": item.get("role"),
                 "detection_scope": item.get("detection_scope"),
                 "selection_tier": item.get("selection_tier"),
-                "score": item.get("score"),
+                "reference_metrics": item.get("reference_metrics"),
                 "passed": item.get("passed"),
                 "compile_error": item.get("compile_error"),
             }
@@ -626,8 +550,10 @@ def build_workflow(
     feature_extractor: Callable[..., str] = extract_detection_features,
     matrix_validator: Callable[..., RuleValidationResult] = validate_rule_matrix,
     failure_diagnoser: Callable[..., dict[str, Any]] = diagnose_candidate,
+    semantic_materializer: Callable[..., list[TrafficSample]] = materialize_semantic_testcases,
+    candidate_judge: Callable[..., FinalJudgment] = judge_passing_candidates,
 ):
-    """编译固定工作流，模型只出现在特征提取和有上限的修复循环中。"""
+    """编译固定工作流；模型负责策略与最终语义判断，代码负责所有证明门禁。"""
     workflow_config = config or WorkflowConfig()
     chat_model = model
     strategy_catalog: Mapping[str, Any] | None = None
@@ -768,7 +694,7 @@ def build_workflow(
             "selected_rule": None,
             "validation": None,
             "diagnosis": None,
-            "coverage_graph": None,
+            "final_judgment": None,
             "selected_rule_ir": None,
             "strategy_context": strategy_context,
         }
@@ -819,6 +745,7 @@ def build_workflow(
         }
 
     def evaluate_candidates_node(state: GenState) -> dict[str, Any]:
+        nonlocal chat_model
         plan = state.get("detection_plan")
         if plan is None:
             return {
@@ -826,6 +753,40 @@ def build_workflow(
                 "failure_code": "DETECTION_PLAN_MISSING",
                 "failure_message": "候选特征计划不存在",
             }
+        deterministic_samples = [
+            sample
+            for sample in state.get("traffic_samples", [])
+            if sample.source != "semantic"
+        ]
+        deterministic_skips = [
+            item
+            for item in state.get("mutation_skips", [])
+            if item.get("content_type") != "semantic/testcase"
+        ]
+        try:
+            semantic_samples = semantic_materializer(
+                Path(state["output_dir"]) / workflow_config.sample_dirname,
+                state["http_request"],
+                state["http_response"],
+                plan.semantic_testcases,
+                config=workflow_config.pcap,
+                sample_offset=len(deterministic_samples),
+            )
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "failure_code": "SEMANTIC_TESTCASE_BUILD_ERROR",
+                "failure_message": _error_text(exc),
+            }
+        evaluation_samples = [*deterministic_samples, *semantic_samples]
+        mutation_skips = [
+            *deterministic_skips,
+            *(
+                skip.public_dict()
+                for skip in getattr(semantic_samples, "mutation_skips", ())
+            ),
+        ]
+        sample_matrix = [sample.public_dict() for sample in evaluation_samples]
         attempt = state["attempt"]
         record = dict(state["attempts"][-1])
         candidate_results: list[dict[str, Any]] = []
@@ -867,6 +828,7 @@ def build_workflow(
                 "lint_issues": [],
                 "complexity": None,
                 "validation": None,
+                "reference_metrics": None,
                 "score": None,
                 "passed": False,
                 "selected": False,
@@ -898,7 +860,6 @@ def build_workflow(
         runtime = state["runtime_check"]
         validation_started = time.perf_counter()
         compiled_items = [compiled_by_index[index] for index in sorted(compiled_by_index)]
-        coverage_graph: dict[str, Any] | None = None
         if compiled_items:
             batch_rules = "\n".join(item.rule for item in compiled_items)
             evaluation_policy = RulePolicy(
@@ -909,25 +870,13 @@ def build_workflow(
             )
             batch_validation = matrix_validator(
                 batch_rules,
-                state["traffic_samples"],
+                evaluation_samples,
                 policy=evaluation_policy,
                 suricata_bin=runtime["suricata_bin"],
                 config_path=runtime["config_path"],
                 syntax_timeout=workflow_config.syntax_timeout,
                 replay_timeout=workflow_config.replay_timeout,
             )
-            if batch_validation.get("sample_results"):
-                try:
-                    coverage_graph = analyze_rule_coverage(
-                        batch_rules,
-                        batch_validation["sample_results"],
-                    ).public_dict()
-                except Exception as exc:
-                    coverage_graph = {
-                        "error_code": "COVERAGE_GRAPH_ERROR",
-                        "error": _error_text(exc),
-                    }
-
             # 某个候选的 PCRE 若仍被 Suricata 拒绝，单独加载以隔离坏候选。
             isolate_syntax = (
                 batch_validation.get("error_code") == "RULE_LOAD_ERROR"
@@ -941,7 +890,7 @@ def build_workflow(
                 if isolate_syntax:
                     raw_validation = matrix_validator(
                         compiled.rule,
-                        state["traffic_samples"],
+                        evaluation_samples,
                         policy=RulePolicy(
                             sid_start=compiled.sid,
                             require_contiguous_sids=True,
@@ -961,11 +910,63 @@ def build_workflow(
                     direction=plan.candidates[candidate_index - 1].direction,
                 )
                 item["validation"] = validation
-                item["score"] = _score_candidate(validation, item["complexity"])
+                item["reference_metrics"] = _candidate_reference_metrics(
+                    validation, item["complexity"]
+                )
+                # 兼容旧 API 消费方；该值明确没有最终决策权。
+                item["score"] = item["reference_metrics"]["heuristic_rank_value"]
                 item["passed"] = validation["passed"]
         validation_ms = round((time.perf_counter() - validation_started) * 1_000)
 
-        selected = _select_primary_candidate(candidate_results)
+        passing_primary = [
+            item
+            for item in candidate_results
+            if item.get("detection_scope") == "case_specific" and item.get("passed")
+        ]
+        final_judgment: dict[str, Any] | None = None
+        selected: dict[str, Any] | None
+        if len(passing_primary) == 1:
+            selected = passing_primary[0]
+            final_judgment = {
+                "selected_candidate": selected["candidate_index"],
+                "reason": "唯一通过全部确定性门禁的主规则候选",
+                "overfitting_risks": [],
+                "source": "deterministic_single_candidate",
+            }
+        elif len(passing_primary) > 1:
+            try:
+                if chat_model is None:
+                    chat_model = model_factory()
+                judgment = candidate_judge(
+                    base=state["base"],
+                    poc=state["poc"],
+                    request=state["http_request"],
+                    response=state["http_response"],
+                    candidates=passing_primary,
+                    model=chat_model,
+                )
+                selected = next(
+                    item
+                    for item in passing_primary
+                    if int(item["candidate_index"]) == judgment.selected_candidate
+                )
+                final_judgment = {
+                    **judgment.public_dict(),
+                    "source": "llm_final_judge",
+                }
+            except Exception as exc:
+                selected = _deterministic_primary_fallback(passing_primary)
+                final_judgment = {
+                    "selected_candidate": (
+                        selected.get("candidate_index") if selected else None
+                    ),
+                    "reason": "Final Judge 不可用，按覆盖事实与最低复杂度确定性降级",
+                    "overfitting_risks": [],
+                    "source": "deterministic_fallback",
+                    "judge_error": _error_text(exc),
+                }
+        else:
+            selected = _deterministic_primary_fallback(candidate_results)
 
         selected_rule: str | None = None
         selected_validation: RuleValidationResult | None = None
@@ -973,7 +974,6 @@ def build_workflow(
         selected_rule_ir: dict[str, Any] | None = None
         supplemental_rule_lines: list[str] = []
         supplemental_rule_irs: list[dict[str, Any]] = []
-        delivery_sid_by_evaluation: dict[int, int] = {}
         if selected is not None:
             selected_index = int(selected["candidate_index"])
             selected_candidate_plan = plan.candidates[selected_index - 1]
@@ -991,7 +991,6 @@ def build_workflow(
             selected_validation = _remap_validation_sid(
                 selected["validation"], source_sid, workflow_config.sid_start
             )
-            delivery_sid_by_evaluation[source_sid] = workflow_config.sid_start
             for item in candidate_results:
                 item["final_sid"] = (
                     workflow_config.sid_start
@@ -1026,25 +1025,9 @@ def build_workflow(
                     item["supplemental_rule_ir"] = supplemental_ir
                     item["final_sid"] = next_delivery_sid
                     item["delivered"] = True
-                    delivery_sid_by_evaluation[
-                        int(item["evaluation_sid"])
-                    ] = next_delivery_sid
                     supplemental_rule_lines.append(supplemental_compiled.rule)
                     supplemental_rule_irs.append(supplemental_ir)
                     next_delivery_sid += 1
-
-            coverage_graph, coverage_sid_mapping = _remap_candidate_coverage_sids(
-                coverage_graph,
-                delivery_sid_by_evaluation,
-                selected_evaluation_sid=source_sid,
-                selected_final_sid=workflow_config.sid_start,
-            )
-            for item in candidate_results:
-                evaluation_sid = int(item["evaluation_sid"])
-                item["coverage_sid"] = coverage_sid_mapping.get(
-                    evaluation_sid,
-                    evaluation_sid,
-                )
 
         supplemental_rules = "\n".join(supplemental_rule_lines)
 
@@ -1056,7 +1039,7 @@ def build_workflow(
                 "selected_candidate": selected_index,
                 "selected_rule": selected_rule,
                 "validation": selected_validation,
-                "coverage_graph": coverage_graph,
+                "final_judgment": final_judgment,
                 "selected_rule_ir": selected_rule_ir,
                 "supplemental_rules": supplemental_rules,
                 "supplemental_rule_irs": supplemental_rule_irs,
@@ -1081,7 +1064,10 @@ def build_workflow(
                 "selected_candidate": selected_index,
                 "rules": selected_rule,
                 "validation_result": selected_validation,
-                "coverage_graph": coverage_graph,
+                "final_judgment": final_judgment,
+                "traffic_samples": evaluation_samples,
+                "sample_matrix": sample_matrix,
+                "mutation_skips": mutation_skips,
                 "selected_rule_ir": selected_rule_ir,
                 "supplemental_rules": supplemental_rules,
                 "supplemental_rule_irs": supplemental_rule_irs,
@@ -1106,7 +1092,10 @@ def build_workflow(
             "selected_candidate": selected_index,
             "rules": selected_rule or state.get("rules", ""),
             "validation_result": selected_validation,
-            "coverage_graph": coverage_graph,
+            "final_judgment": final_judgment,
+            "traffic_samples": evaluation_samples,
+            "sample_matrix": sample_matrix,
+            "mutation_skips": mutation_skips,
             "selected_rule_ir": selected_rule_ir,
             "supplemental_rules": supplemental_rules,
             "supplemental_rule_irs": supplemental_rule_irs,
@@ -1223,10 +1212,10 @@ def build_workflow(
                     output_dir / ir_filename,
                     {"rules": [state["selected_rule_ir"]]},
                 )
-            if state.get("coverage_graph") is not None:
+            if state.get("final_judgment") is not None:
                 _write_json(
-                    output_dir / "coverage-graph.json",
-                    state["coverage_graph"],
+                    output_dir / "final-judgment.json",
+                    state["final_judgment"],
                 )
             report = {
                 "case_id": state.get("case_id", "case"),
@@ -1246,7 +1235,7 @@ def build_workflow(
                 "mutation_skips": state.get("mutation_skips", []),
                 "rule_ir": state.get("selected_rule_ir"),
                 "supplemental_rule_ir": state.get("supplemental_rule_irs", []),
-                "coverage_graph": state.get("coverage_graph"),
+                "final_judgment": state.get("final_judgment"),
                 "strategy_context": state.get("strategy_context", []),
                 "validation": state.get("validation_result"),
                 "attempts": state.get("attempts", []),

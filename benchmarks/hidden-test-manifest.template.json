@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "suricataagent-hidden-test-v1",
+  "split": "test",
+  "sealed": true,
+  "case_count": 30,
+  "pcap_count": 150,
+  "model_visible_file": "input.json",
+  "evaluator_only_files": [
+    "oracle.json",
+    "pcaps/*",
+    "reference.rules"
+  ],
+  "cases": []
+}

@@ -17,10 +17,11 @@ from xml.etree import ElementTree
 
 from generate_pcap import PcapConfig, generate_pcap, http_text_to_bytes
 from rule_knowledge import EXPLOIT_MARKERS, contains_exploit_marker
+from rule_compiler import SemanticRequestChange, SemanticTestcase
 
 
 ExpectedOutcome = Literal["alert", "no_alert"]
-SampleSource = Literal["original", "derived", "uploaded"]
+SampleSource = Literal["original", "derived", "semantic", "uploaded"]
 ValidationTarget = Literal[
     "generic",
     "request_detection",
@@ -100,6 +101,10 @@ class TrafficSampleList(list[TrafficSample]):
     def skips(self) -> tuple[MutationSkip, ...]:
         """返回构造样本时记录的 body mutation 诊断。"""
         return self.mutation_skips
+
+
+def _semantic_skip(code: str, detail: str) -> MutationSkip:
+    return MutationSkip(code, "semantic/testcase", detail)
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,8 +265,12 @@ _PASSWD_USERNAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}\$?$")
 _PASSWD_RESPONSE_MEDIA_TYPES = {
     "",
     "application/octet-stream",
+    "application/pdf",
     "text/plain",
 }
+_COOKIE_HEADER_CONTINUATION_RE = re.compile(
+    rb"(?i)^(?:samesite=(?:strict|lax|none)|secure|httponly)$"
+)
 
 
 def _message_bytes(message: str | bytes) -> bytes:
@@ -341,6 +350,17 @@ def parse_http_response(message: str | bytes) -> ParsedResponse:
             continue
         name, separator, value = line.partition(b":")
         if not separator:
+            if (
+                headers
+                and headers[-1][0].casefold() == "set-cookie"
+                and _COOKIE_HEADER_CONTINUATION_RE.fullmatch(line.strip())
+            ):
+                previous_name, previous_value = headers[-1]
+                headers[-1] = (
+                    previous_name,
+                    previous_value + "; " + line.strip().decode("latin-1"),
+                )
+                continue
             raise ValueError("HTTP 响应头字段格式无效")
         headers.append(
             (name.decode("latin-1").strip(), value.decode("latin-1").strip())
@@ -2578,6 +2598,263 @@ def derive_http_cases(
 ) -> list[DerivedCase]:
     """兼容旧调用方，继续返回可直接遍历和修改的普通 list。"""
     return list(derive_http_cases_with_diagnostics(request, response).cases)
+
+
+def _materialize_semantic_request(
+    parsed: ParsedRequest,
+    changes: tuple[SemanticRequestChange, ...],
+    expected: ExpectedOutcome,
+) -> tuple[ParsedRequest | None, MutationSkip | None]:
+    """把受限字段变更应用到已解析请求；不接受原始报文注入。"""
+    location = changes[0].location
+    if any(change.location != location for change in changes):
+        return None, _semantic_skip(
+            "SEMANTIC_MIXED_LOCATIONS",
+            "一次 semantic testcase 只能修改 query、JSON 或 form 中的一种表示",
+        )
+
+    if location == "query":
+        path, parts, fragment = _split_target(parsed.target)
+        updated = list(parts)
+        neutralized_attack = False
+        added_field = False
+        for change in changes:
+            indexes = [
+                index
+                for index, part in enumerate(updated)
+                if unquote_plus(part.name).casefold() == change.field.casefold()
+            ]
+            if not indexes and expected == "no_alert":
+                updated.append(
+                    QueryPart(
+                        quote_plus(change.field, safe=""),
+                        quote_plus(change.value, safe=""),
+                        True,
+                    )
+                )
+                added_field = True
+                continue
+            if len(indexes) != 1:
+                return None, _semantic_skip(
+                    "SEMANTIC_FIELD_NOT_UNIQUE",
+                    f"query 字段 {change.field!r} 必须在原始请求中恰好出现一次",
+                )
+            index = indexes[0]
+            original_value = unquote_plus(updated[index].value)
+            neutralized_attack = neutralized_attack or (
+                contains_exploit_marker(original_value)
+                and not contains_exploit_marker(change.value)
+            )
+            updated[index] = QueryPart(
+                updated[index].name,
+                quote_plus(change.value, safe=""),
+                True,
+            )
+        if added_field and not neutralized_attack:
+            return None, _semantic_skip(
+                "SEMANTIC_ATTACK_FIELD_NOT_NEUTRALIZED",
+                "新增无关 query 字段的负样本必须同时把原攻击字段改成非攻击值",
+            )
+        return replace(parsed, target=_render_target(path, updated, fragment)), None
+
+    protocol_skip = _body_rewrite_skip(parsed)
+    if protocol_skip is not None:
+        return None, _semantic_skip(
+            "SEMANTIC_BODY_REWRITE_BLOCKED",
+            protocol_skip.detail,
+        )
+
+    if location == "json":
+        parsed_json = _parse_json_body(parsed)
+        if parsed_json is None:
+            return None, _semantic_skip(
+                "SEMANTIC_JSON_UNAVAILABLE",
+                "原始请求正文不是可安全改写的 JSON",
+            )
+        document, encoding = parsed_json
+        if not isinstance(document, dict):
+            return None, _semantic_skip(
+                "SEMANTIC_JSON_OBJECT_REQUIRED",
+                "semantic JSON testcase 当前只支持对象字段",
+            )
+        updated_document = copy.deepcopy(document)
+        neutralized_attack = False
+        added_field = False
+        for change in changes:
+            path = tuple(change.field.split("."))
+            current: object = updated_document
+            for part in path[:-1]:
+                if not isinstance(current, dict) or part not in current:
+                    return None, _semantic_skip(
+                        "SEMANTIC_FIELD_NOT_FOUND",
+                        f"JSON 字段 {change.field!r} 不存在",
+                    )
+                current = current[part]
+            leaf = path[-1]
+            if (
+                isinstance(current, dict)
+                and leaf not in current
+                and expected == "no_alert"
+                and len(path) == 1
+            ):
+                current[leaf] = change.value
+                added_field = True
+                continue
+            if not isinstance(current, dict) or leaf not in current:
+                return None, _semantic_skip(
+                    "SEMANTIC_FIELD_NOT_FOUND",
+                    f"JSON 字段 {change.field!r} 不存在",
+                )
+            if not isinstance(current[leaf], str):
+                return None, _semantic_skip(
+                    "SEMANTIC_STRING_FIELD_REQUIRED",
+                    f"JSON 字段 {change.field!r} 的原始值必须是字符串",
+                )
+            neutralized_attack = neutralized_attack or (
+                contains_exploit_marker(current[leaf])
+                and not contains_exploit_marker(change.value)
+            )
+            current[leaf] = change.value
+        if added_field and not neutralized_attack:
+            return None, _semantic_skip(
+                "SEMANTIC_ATTACK_FIELD_NOT_NEUTRALIZED",
+                "新增无关 JSON 字段的负样本必须同时把原攻击字段改成非攻击值",
+            )
+        body = _json_bytes(updated_document, encoding)
+        if body is None:
+            return None, _semantic_skip(
+                "SEMANTIC_BODY_ENCODING_FAILED", "无法使用原始字符集编码 JSON"
+            )
+        return _replace_body(parsed, body), None
+
+    parsed_form = _parse_form_body(parsed)
+    if parsed_form is None:
+        return None, _semantic_skip(
+            "SEMANTIC_FORM_UNAVAILABLE",
+            "原始请求正文不是可安全改写的 application/x-www-form-urlencoded",
+        )
+    parts, encoding = parsed_form
+    updated_parts = list(parts)
+    neutralized_attack = False
+    added_field = False
+    for change in changes:
+        indexes = [
+            index
+            for index, part in enumerate(updated_parts)
+            if unquote_plus(part.name).casefold() == change.field.casefold()
+        ]
+        if not indexes and expected == "no_alert":
+            updated_parts.append(
+                QueryPart(
+                    quote_plus(change.field, safe=""),
+                    quote_plus(change.value, safe=""),
+                    True,
+                )
+            )
+            added_field = True
+            continue
+        if len(indexes) != 1:
+            return None, _semantic_skip(
+                "SEMANTIC_FIELD_NOT_UNIQUE",
+                f"form 字段 {change.field!r} 必须在原始请求中恰好出现一次",
+            )
+        index = indexes[0]
+        original_value = unquote_plus(updated_parts[index].value)
+        neutralized_attack = neutralized_attack or (
+            contains_exploit_marker(original_value)
+            and not contains_exploit_marker(change.value)
+        )
+        updated_parts[index] = QueryPart(
+            updated_parts[index].name,
+            quote_plus(change.value, safe=""),
+            True,
+        )
+    if added_field and not neutralized_attack:
+        return None, _semantic_skip(
+            "SEMANTIC_ATTACK_FIELD_NOT_NEUTRALIZED",
+            "新增无关 form 字段的负样本必须同时把原攻击字段改成非攻击值",
+        )
+    body = _encode_body("&".join(part.render() for part in updated_parts), encoding)
+    if body is None:
+        return None, _semantic_skip(
+            "SEMANTIC_BODY_ENCODING_FAILED", "无法使用原始字符集编码 form 正文"
+        )
+    return _replace_body(parsed, body), None
+
+
+def materialize_semantic_testcases(
+    output_dir: str | Path,
+    request: str | bytes,
+    response: str | bytes,
+    testcases: tuple[SemanticTestcase, ...],
+    *,
+    config: PcapConfig | None = None,
+    sample_offset: int = 0,
+) -> TrafficSampleList:
+    """把 LLM 语义 testcase 确定性转换为真实 HTTP/PCAP。"""
+    if not testcases:
+        return TrafficSampleList([])
+    output_path = Path(output_dir).resolve()
+    output_path.mkdir(parents=True, exist_ok=True)
+    parsed = parse_http_request(request)
+    response_bytes = _response_message_bytes(response) if response else b""
+    base = config or PcapConfig()
+    samples: list[TrafficSample] = []
+    skips: list[MutationSkip] = []
+    seen_requests: set[bytes] = {parsed.render()}
+
+    for testcase_index, testcase in enumerate(testcases, start=1):
+        variant, skip = _materialize_semantic_request(
+            parsed,
+            testcase.changes,
+            testcase.expected,
+        )
+        if skip is not None:
+            skips.append(skip)
+            continue
+        assert variant is not None
+        request_bytes = variant.render()
+        if request_bytes in seen_requests:
+            skips.append(
+                _semantic_skip(
+                    "SEMANTIC_DUPLICATE_REQUEST",
+                    f"semantic testcase {testcase_index} 没有产生新的请求字节",
+                )
+            )
+            continue
+        seen_requests.add(request_bytes)
+        name = f"semantic-{'positive' if testcase.expected == 'alert' else 'negative'}-{testcase_index:02d}"
+        flow_index = sample_offset + len(samples)
+        client_port = base.client_port + flow_index
+        if client_port > 65535:
+            client_port = 40000 + flow_index
+        sample_config = replace(
+            base,
+            client_port=client_port,
+            client_initial_seq=(base.client_initial_seq + flow_index * 100_000) % (2**32),
+            server_initial_seq=(base.server_initial_seq + flow_index * 100_000) % (2**32),
+            timestamp=base.timestamp + flow_index,
+        )
+        sample_response = response_bytes if testcase.expected == "alert" else _benign_response()
+        pcap_path = generate_pcap(
+            str(output_path / f"{name}.pcap"),
+            request_bytes,
+            sample_response,
+            config=sample_config,
+        )
+        samples.append(
+            TrafficSample(
+                name=name,
+                expected=testcase.expected,
+                reason=testcase.reason,
+                source="semantic",
+                pcap_path=pcap_path,
+                request=request_bytes,
+                response=sample_response,
+                validates="request_detection",
+            )
+        )
+    return TrafficSampleList(samples, tuple(skips))
 
 
 def build_traffic_matrix(

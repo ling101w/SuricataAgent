@@ -17,7 +17,8 @@ from rule_knowledge import (
     DYNAMIC_BUFFER_FIELDS,
     DYNAMIC_HTTP_FIELDS,
     HEADER_BUFFERS,
-    REQUIRED_CANDIDATE_COUNT,
+    MAX_CANDIDATES,
+    MIN_CANDIDATES,
     RESPONSE_BUFFERS,
     SUPPORTED_BUFFERS,
     CandidateRole,
@@ -39,6 +40,9 @@ MAX_CONTENT_BYTES = 4_096
 MAX_PCRE_CHARS = 4_096
 MAX_REASON_CHARS = 4_000
 MIN_CONTENT_BYTES = 4
+MAX_SEMANTIC_TESTCASES = 6
+MAX_TESTCASE_CHANGES = 4
+MAX_TESTCASE_VALUE_CHARS = 2_000
 
 _CANDIDATE_FIELDS = {
     "role",
@@ -51,6 +55,9 @@ _CANDIDATE_FIELDS = {
     "reason",
 }
 _FEATURE_FIELDS = {"buffer", "content", "pcre", "nocase"}
+_SEMANTIC_TESTCASE_FIELDS = {"expected", "changes", "reason"}
+_SEMANTIC_CHANGE_FIELDS = {"location", "field", "value"}
+_SEMANTIC_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.\-]{0,127}$")
 
 _DYNAMIC_HEADER_RE = re.compile(
     r"^\s*(?:"
@@ -147,10 +154,29 @@ class DetectionCandidate:
 
 
 @dataclass(frozen=True)
+class SemanticRequestChange:
+    """一项由代码安全物化的请求字段变更。"""
+
+    location: Literal["query", "json", "form"]
+    field: str
+    value: str
+
+
+@dataclass(frozen=True)
+class SemanticTestcase:
+    """LLM 提议的语义样本，不包含原始 HTTP 或 PCAP。"""
+
+    expected: Literal["alert", "no_alert"]
+    changes: tuple[SemanticRequestChange, ...]
+    reason: str
+
+
+@dataclass(frozen=True)
 class DetectionPlan:
-    """包含按固定角色顺序排列的三个独立候选方案。"""
+    """包含 1 到 3 个证据组合不同的检测策略。"""
 
     candidates: tuple[DetectionCandidate, ...]
+    semantic_testcases: tuple[SemanticTestcase, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -415,10 +441,78 @@ def _parse_candidate(value: object, path: str) -> DetectionCandidate:
     )
 
 
+def _parse_semantic_change(value: object, path: str) -> SemanticRequestChange:
+    data = _require_object(value, path)
+    _require_exact_fields(
+        data,
+        _SEMANTIC_CHANGE_FIELDS,
+        _SEMANTIC_CHANGE_FIELDS,
+        path,
+    )
+    location = data["location"]
+    if location not in ("query", "json", "form"):
+        raise DetectionSchemaError(
+            f"{path}.location", "只允许 query、json 或 form"
+        )
+    field = data["field"]
+    if type(field) is not str or not _SEMANTIC_FIELD_RE.fullmatch(field):
+        raise DetectionSchemaError(
+            f"{path}.field", "必须是简单的 ASCII 字段名"
+        )
+    changed_value = data["value"]
+    if type(changed_value) is not str or len(changed_value) > MAX_TESTCASE_VALUE_CHARS:
+        raise DetectionSchemaError(
+            f"{path}.value",
+            f"必须是最多 {MAX_TESTCASE_VALUE_CHARS} 个字符的字符串",
+        )
+    return SemanticRequestChange(location, field, changed_value)
+
+
+def _parse_semantic_testcase(value: object, path: str) -> SemanticTestcase:
+    data = _require_object(value, path)
+    _require_exact_fields(
+        data,
+        _SEMANTIC_TESTCASE_FIELDS,
+        _SEMANTIC_TESTCASE_FIELDS,
+        path,
+    )
+    expected = data["expected"]
+    if expected not in ("alert", "no_alert"):
+        raise DetectionSchemaError(
+            f"{path}.expected", "只允许 alert 或 no_alert"
+        )
+    values = data["changes"]
+    if type(values) is not list or not 1 <= len(values) <= MAX_TESTCASE_CHANGES:
+        raise DetectionSchemaError(
+            f"{path}.changes",
+            f"数量必须在 1 到 {MAX_TESTCASE_CHANGES} 之间",
+        )
+    changes = tuple(
+        _parse_semantic_change(item, f"{path}.changes[{index}]")
+        for index, item in enumerate(values)
+    )
+    if len({change.location for change in changes}) != 1:
+        raise DetectionSchemaError(
+            f"{path}.changes", "一次 testcase 只能修改一种请求表示"
+        )
+    identities = [(change.location, change.field.casefold()) for change in changes]
+    if len(set(identities)) != len(identities):
+        raise DetectionSchemaError(f"{path}.changes", "同一字段不能重复修改")
+    reason = data["reason"]
+    if type(reason) is not str or not reason.strip():
+        raise DetectionSchemaError(f"{path}.reason", "必须是非空字符串")
+    reason = reason.strip()
+    if len(reason) > MAX_REASON_CHARS:
+        raise DetectionSchemaError(
+            f"{path}.reason", f"不能超过 {MAX_REASON_CHARS} 个字符"
+        )
+    return SemanticTestcase(expected, changes, reason)
+
+
 def _candidate_diversity_error(
     candidates: Sequence[DetectionCandidate],
 ) -> str | None:
-    """检查角色标签背后的证据组合是否真的不同。"""
+    """检查策略标签背后的证据组合与各角色自身约束。"""
     fingerprints = [evidence_fingerprint(candidate) for candidate in candidates]
     for left in range(len(fingerprints)):
         for right in range(left + 1, len(fingerprints)):
@@ -429,54 +523,54 @@ def _candidate_diversity_error(
                     "reason、动态字段或等价字面量 PCRE 不算独立候选"
                 )
 
-    precision, robust, alternative = candidates
-    if precision.direction != "request":
-        return "precision 候选必须检测 request 中的 endpoint 与利用语义"
-    if robust.direction != "request":
-        return "robust 候选必须从 request 中选择抗表示变化的利用证据"
-    precision_has_endpoint = any(
-        feature.content is not None
-        and is_endpoint_match(feature.buffer, feature.content)
-        for feature in precision.features
-    )
-    precision_has_exploit = any(
-        feature.pcre is not None
-        or feature.content is not None
-        and not is_structural_match(feature.buffer, feature.content)
-        for feature in precision.features
-    )
-    if not precision_has_endpoint or not precision_has_exploit:
-        return "precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据"
-
-    robust_exploit_evidence = candidate_evidence_set(robust, exploit_only=True)
-    robust_has_endpoint = any(
-        feature.content is not None
-        and is_endpoint_match(feature.buffer, feature.content)
-        for feature in robust.features
-    )
-    if not robust_has_endpoint:
-        return "robust 候选必须保留最小 endpoint 身份锚点"
-    if not robust_exploit_evidence:
-        return "robust 候选必须包含非结构性的利用证据"
-
-    if alternative.role == "alternative_evidence" and alternative.direction == "request":
-        alternative_exploit_evidence = candidate_evidence_set(
-            alternative,
-            exploit_only=True,
+    by_role = {candidate.role: candidate for candidate in candidates}
+    precision = by_role.get("precision")
+    if precision is not None:
+        if precision.direction != "request":
+            return "precision 候选必须检测 request 中的 endpoint 与利用语义"
+        precision_has_endpoint = any(
+            feature.content is not None
+            and is_endpoint_match(feature.buffer, feature.content)
+            for feature in precision.features
         )
-        if not alternative_exploit_evidence:
+        precision_has_exploit = any(
+            feature.pcre is not None
+            or feature.content is not None
+            and not is_structural_match(feature.buffer, feature.content)
+            for feature in precision.features
+        )
+        if not precision_has_endpoint or not precision_has_exploit:
+            return "precision 候选必须同时包含 endpoint 锚点和非结构性的利用证据"
+
+    robust = by_role.get("robust")
+    if robust is not None:
+        if robust.direction != "request":
+            return "robust 候选必须从 request 中选择抗表示变化的利用证据"
+        robust_exploit_evidence = candidate_evidence_set(robust, exploit_only=True)
+        robust_has_endpoint = any(
+            feature.content is not None
+            and is_endpoint_match(feature.buffer, feature.content)
+            for feature in robust.features
+        )
+        if not robust_has_endpoint:
+            return "robust 候选必须保留最小 endpoint 身份锚点"
+        if not robust_exploit_evidence:
+            return "robust 候选必须包含非结构性的利用证据"
+
+    alternative = by_role.get("alternative_evidence")
+    if alternative is not None and alternative.direction == "request":
+        if not candidate_evidence_set(alternative, exploit_only=True):
             return "alternative_evidence 请求候选必须包含非结构性的利用证据"
-        alternative_novel_evidence = novel_evidence(
-            alternative,
-            candidates[:-1],
-            exploit_only=True,
+        other_candidates = tuple(
+            candidate for candidate in candidates if candidate is not alternative
         )
-        if not alternative_novel_evidence:
-            return (
-                "alternative_evidence 请求候选必须包含 precision/robust "
-                "尚未使用的独立利用证据"
-            )
-    if alternative.direction == "response":
+        if other_candidates and not novel_evidence(
+            alternative,
+            other_candidates,
+            exploit_only=True,
+        ):
+            return "alternative_evidence 请求候选必须包含其他策略尚未使用的独立利用证据"
+    if alternative is not None and alternative.direction == "response":
         response_features = tuple(
             feature
             for feature in alternative.features
@@ -514,14 +608,19 @@ def _candidate_diversity_error(
 def parse_detection_data(value: object) -> DetectionPlan:
     """严格解析已解码的 JSON 数据，未知字段不会被静默忽略。"""
     data = _require_object(value, "$")
-    _require_exact_fields(data, {"candidates"}, {"candidates"}, "$")
+    _require_exact_fields(
+        data,
+        {"candidates"},
+        {"candidates", "semantic_testcases"},
+        "$",
+    )
     values = data["candidates"]
     if type(values) is not list:
         raise DetectionSchemaError("$.candidates", "必须是数组")
     if not candidate_count_is_valid(len(values)):
         raise DetectionSchemaError(
             "$.candidates",
-            f"候选数量必须恰好为 {REQUIRED_CANDIDATE_COUNT}",
+            f"候选数量必须在 {MIN_CANDIDATES} 到 {MAX_CANDIDATES} 之间",
         )
     candidates = tuple(
         _parse_candidate(item, f"$.candidates[{index}]")
@@ -531,12 +630,32 @@ def parse_detection_data(value: object) -> DetectionPlan:
     if not candidate_roles_are_valid(actual_roles):
         raise DetectionSchemaError(
             "$.candidates",
-            "role 必须按顺序且唯一对应 " + "、".join(CANDIDATE_ROLES),
+            "role 必须唯一，且只能使用 " + "、".join(CANDIDATE_ROLES),
         )
     diversity_error = _candidate_diversity_error(candidates)
     if diversity_error is not None:
         raise DetectionSchemaError("$.candidates", diversity_error)
-    return DetectionPlan(candidates=candidates)
+    if not any(candidate.detection_scope == "case_specific" for candidate in candidates):
+        raise DetectionSchemaError(
+            "$.candidates", "至少需要一个可作为主规则的 case_specific 请求策略"
+        )
+
+    testcase_values = data.get("semantic_testcases", [])
+    if type(testcase_values) is not list:
+        raise DetectionSchemaError("$.semantic_testcases", "必须是数组")
+    if len(testcase_values) > MAX_SEMANTIC_TESTCASES:
+        raise DetectionSchemaError(
+            "$.semantic_testcases",
+            f"数量不能超过 {MAX_SEMANTIC_TESTCASES}",
+        )
+    semantic_testcases = tuple(
+        _parse_semantic_testcase(item, f"$.semantic_testcases[{index}]")
+        for index, item in enumerate(testcase_values)
+    )
+    return DetectionPlan(
+        candidates=candidates,
+        semantic_testcases=semantic_testcases,
+    )
 
 
 def parse_detection_json(payload: str | bytes | bytearray) -> DetectionPlan:
@@ -858,16 +977,16 @@ def compile_candidates(
     classtype: str = "web-application-attack",
     rev: int = 1,
 ) -> CompilationResult:
-    """按固定角色顺序编译三个候选，并从 sid_start 开始连续分配 SID。"""
+    """按模型提供的策略顺序编译 1 到 3 个候选并连续分配 SID。"""
     candidates = plan.candidates if isinstance(plan, DetectionPlan) else tuple(plan)
     if not candidate_count_is_valid(len(candidates)):
         raise ValueError(
-            f"候选数量必须恰好为 {REQUIRED_CANDIDATE_COUNT}"
+            f"候选数量必须在 {MIN_CANDIDATES} 到 {MAX_CANDIDATES} 之间"
         )
     actual_roles = tuple(candidate.role for candidate in candidates)
     if not candidate_roles_are_valid(actual_roles):
         raise ValueError(
-            "候选 role 必须按顺序且唯一对应 " + "、".join(CANDIDATE_ROLES)
+            "候选 role 必须唯一，且只能使用 " + "、".join(CANDIDATE_ROLES)
         )
     diversity_error = _candidate_diversity_error(candidates)
     if diversity_error is not None:
@@ -920,6 +1039,8 @@ __all__ = [
     "DetectionSchemaError",
     "LintIssue",
     "RuleLintError",
+    "SemanticRequestChange",
+    "SemanticTestcase",
     "compile_candidate",
     "compile_candidates",
     "compile_detection_json",
