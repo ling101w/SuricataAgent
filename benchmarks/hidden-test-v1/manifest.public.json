@@ -1,0 +1,436 @@
+{
+  "version": 1,
+  "name": "suricataagent-hidden-test-v1",
+  "split": "test",
+  "sealed": true,
+  "case_count": 30,
+  "pcap_count": 150,
+  "model_visible_file": "input.json",
+  "evaluator_only_files": [
+    "oracle.json",
+    "pcaps/*",
+    "reference.rules"
+  ],
+  "cases": [
+    {
+      "case_id": "CVE-2021-42013",
+      "family": "double_encoded_path_traversal",
+      "path": "sealed-cases/CVE-2021-42013",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "httpd/CVE-2021-42013/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2015-3337",
+      "family": "plugin_directory_traversal",
+      "path": "sealed-cases/CVE-2015-3337",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "elasticsearch/CVE-2015-3337/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2015-5531",
+      "family": "snapshot_directory_traversal",
+      "path": "sealed-cases/CVE-2015-5531",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "elasticsearch/CVE-2015-5531/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2018-17246",
+      "family": "local_file_inclusion",
+      "path": "sealed-cases/CVE-2018-17246",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "kibana/CVE-2018-17246/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2021-34429",
+      "family": "ambiguous_path_disclosure",
+      "path": "sealed-cases/CVE-2021-34429",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "jetty/CVE-2021-34429/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2010-2861",
+      "family": "locale_directory_traversal",
+      "path": "sealed-cases/CVE-2010-2861",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "coldfusion/CVE-2010-2861/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2019-3396",
+      "family": "template_path_traversal",
+      "path": "sealed-cases/CVE-2019-3396",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "confluence/CVE-2019-3396/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2022-26134",
+      "family": "ognl_path_injection",
+      "path": "sealed-cases/CVE-2022-26134",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "confluence/CVE-2022-26134/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2023-22527",
+      "family": "ognl_template_injection",
+      "path": "sealed-cases/CVE-2023-22527",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "confluence/CVE-2023-22527/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2018-7602",
+      "family": "authenticated_form_rce",
+      "path": "sealed-cases/CVE-2018-7602",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "drupal/CVE-2018-7602/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2019-7609",
+      "family": "prototype_pollution_rce",
+      "path": "sealed-cases/CVE-2019-7609",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "kibana/CVE-2019-7609/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2023-41892",
+      "family": "arbitrary_object_instantiation",
+      "path": "sealed-cases/CVE-2023-41892",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "craftcms/CVE-2023-41892/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2020-14882",
+      "family": "console_auth_bypass_rce",
+      "path": "sealed-cases/CVE-2020-14882",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "weblogic/CVE-2020-14882/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2017-12615",
+      "family": "jsp_upload",
+      "path": "sealed-cases/CVE-2017-12615",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "tomcat/CVE-2017-12615/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2022-22963",
+      "family": "spel_header_injection",
+      "path": "sealed-cases/CVE-2022-22963",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "spring/CVE-2022-22963/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2022-22947",
+      "family": "gateway_spel_injection",
+      "path": "sealed-cases/CVE-2022-22947",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "spring/CVE-2022-22947/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2017-8046",
+      "family": "json_patch_spel_injection",
+      "path": "sealed-cases/CVE-2017-8046",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "spring/CVE-2017-8046/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2021-3129",
+      "family": "ignition_file_wrapper_rce",
+      "path": "sealed-cases/CVE-2021-3129",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "laravel/CVE-2021-3129/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2019-10758",
+      "family": "javascript_code_injection",
+      "path": "sealed-cases/CVE-2019-10758",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "mongo-express/CVE-2019-10758/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2019-0193",
+      "family": "dataimport_script_rce",
+      "path": "sealed-cases/CVE-2019-0193",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "solr/CVE-2019-0193/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2019-17558",
+      "family": "velocity_template_rce",
+      "path": "sealed-cases/CVE-2019-17558",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "solr/CVE-2019-17558/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2024-9264",
+      "family": "sql_expression_file_read_rce",
+      "path": "sealed-cases/CVE-2024-9264",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "grafana/CVE-2024-9264/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2017-10271",
+      "family": "xmldecoder_deserialization",
+      "path": "sealed-cases/CVE-2017-10271",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "weblogic/CVE-2017-10271/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2015-8562",
+      "family": "http_header_object_injection",
+      "path": "sealed-cases/CVE-2015-8562",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "joomla/CVE-2015-8562/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2017-8917",
+      "family": "component_sqli",
+      "path": "sealed-cases/CVE-2017-8917",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "joomla/CVE-2017-8917/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2023-25157",
+      "family": "ogc_filter_sqli",
+      "path": "sealed-cases/CVE-2023-25157",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "geoserver/CVE-2023-25157/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2021-40822",
+      "family": "wfs_post_ssrf",
+      "path": "sealed-cases/CVE-2021-40822",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "geoserver/CVE-2021-40822/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2021-29441",
+      "family": "user_agent_auth_bypass",
+      "path": "sealed-cases/CVE-2021-29441",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "nacos/CVE-2021-29441/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2023-23752",
+      "family": "webservice_access_bypass",
+      "path": "sealed-cases/CVE-2023-23752",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "joomla/CVE-2023-23752/README.md"
+      }
+    },
+    {
+      "case_id": "CVE-2023-28432",
+      "family": "bootstrap_information_disclosure",
+      "path": "sealed-cases/CVE-2023-28432",
+      "split": "test",
+      "positive_count": 3,
+      "negative_count": 2,
+      "has_reference_rule": false,
+      "provenance": {
+        "repository": "https://github.com/vulhub/vulhub.git",
+        "commit": "aeaf65793f147f29bd50841ef77f4e9cad07ecc7",
+        "path": "minio/CVE-2023-28432/README.md"
+      }
+    }
+  ]
+}

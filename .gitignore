@@ -12,5 +12,7 @@ rule-library-analysis/
 .benchmark-*/
 /benchmarks/suricata-verify/
 /benchmarks/results/*/
+/benchmarks/hidden-test-v1/results/
+/benchmarks/hidden-test-v1/run-logs/
 /suricata/
 /scope-check.rules
