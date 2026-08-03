@@ -25,6 +25,13 @@ flowchart LR
 - Generate 和 Repair 输出完整 Suricata rule，不经过生成期 IR 或 compiler。
 - 只有 Python PoC 时先通过 AST 静态提取请求；系统不会导入、执行或联网运行 PoC。
 - Repair 只看到固定的 repair split；`verify_only` 样本只在最终 Verify 使用，结果不回流。
+- Repair 候选必须保留首次生成规则的 action、protocol、header、direction、SID、rev、flow、
+  method 及 endpoint/parameter 语义锚点；确定性 diff 拒绝越界修改。
+- Repair 采用不回退验收：Suricata 语法必须通过，已通过样本不能回退，repair 集不能新增
+  误报，并且候选必须带来可测改进；被拒绝的候选不会替换当前规则。
+- 生成规则按不可信可执行检测产物处理；生产策略仅允许 HTTP 请求规则，强制
+  `flow:established,to_server`，限制 PCRE/content/`byte_jump`，并拒绝 dataset、Lua、
+  filestore 和跨规则状态关键字。
 - Verify 是唯一交付门槛：syntax、全部正向样本和全部负向样本必须通过。
 - Rule IR 在 Verify 后解析，仅用于解释、指纹、搜索和规则治理，不影响生成结论。
 - 只有 verified 且可解析的 final rule 才进入 Rule KB。
@@ -36,10 +43,12 @@ flowchart LR
 ```powershell
 python main.py case.json --output-dir artifacts --max-attempts 3
 python web_app.py
+python benchmark_runner.py --mode full --output-dir benchmark-artifacts
 ```
 
-`main.py` 的 CLI 和 Web API 都运行 `E-direct-repair-v1`。旧 `main.build_workflow` 保留用于
-B/C 冻结消融复现，不再是默认产品路径。
+CLI、Web API 和 Benchmark 都只从 `production.py` 导入生产契约，运行
+`E-direct-repair-v1`，并在报告中写入 `pipeline_id`。旧 `main.build_workflow` 保留用于 B/C
+冻结消融复现，不再是默认产品路径。
 
 ## 现有结构化工作流（Legacy B/C）
 
@@ -400,19 +409,29 @@ python -B benchmarks/audit_ir_expressiveness.py
 
 ```powershell
 python -m pip install -r requirements.txt
-$env:DEEPSEEK_API_KEY = "你的密钥"
+$env:LLM_PROVIDER = "openai_compatible"
+$env:LLM_API_KEY = "你的密钥"
+$env:LLM_BASE_URL = "https://api.example.com/v1"
+$env:LLM_MODEL = "模型名称"
 ```
 
 也可以在项目目录创建 `.env`。它会在启动时读取，但不会覆盖进程中已经设置的环境
 变量：
 
 ```dotenv
-DEEPSEEK_API_KEY=你的密钥
-DEEPSEEK_MODEL=gpt-5.5
-DEEPSEEK_BASE_URL=https://api.example.com/v1
+LLM_PROVIDER=openai_compatible
+LLM_API_KEY=你的密钥
+LLM_BASE_URL=https://api.example.com/v1
+LLM_MODEL=模型名称
+LLM_TEMPERATURE=0.1
+# 可选：完全禁止外部模型请求
+LLM_OFFLINE=0
 # 可选：CLI 的持久化 Rule KB；Web 默认使用 artifacts/rule-kb.json
 RULEOPS_STORE=C:\path\to\rule-kb.json
 ```
+
+旧 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` 暂时作为迁移别名保留，
+新部署应使用 `LLM_*`。代码不再提供默认远程地址或默认模型名。
 
 项目优先发现 `suricata/suricata.exe` 和 `suricata/suricata.yaml`。使用其他安装位置时
 设置：
@@ -495,7 +514,7 @@ repair/verify split、逐样本矩阵、规则 diff、可追溯结果解释、po
 规则、Coverage Graph 和报告下载。RuleOps 工作区提供 KB 搜索、文本/逻辑去重记录、
 证据指纹分组和 same-case joint replay Coverage Graph。
 
-Web 默认只监听本机。PoC 和 HTTP 证据会发送到 `DEEPSEEK_BASE_URL` 指向的模型服务，
+Web 默认只监听本机。PoC 和 HTTP 证据会发送到 `LLM_BASE_URL` 指向的模型服务，
 不要提交不应离开本机的凭据或敏感流量。
 
 ## 产物
@@ -529,9 +548,10 @@ artifacts/
             └── execution.json
 ```
 
-每次 Repair 都保存输入规则、模型可见 feedback、输出规则、diff 和 Execute 结果；
+每次 Repair 都保存输入规则、模型可见 feedback、输出规则、diff、约束违规、接受结论和
+Execute 结果；
 Verify-only 样本不会出现在这些 feedback 文件中。`validation-report.json` 固化 pipeline
-version 与 generate/repair prompt SHA-256，后一轮状态不会覆盖前一轮证据。
+ID 与 generate/repair prompt SHA-256，后一轮状态不会覆盖前一轮证据。
 
 ## 测试
 

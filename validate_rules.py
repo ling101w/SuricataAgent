@@ -71,6 +71,27 @@ class RulePolicy:
     allowed_actions: frozenset[str] = field(
         default_factory=lambda: frozenset({"alert"})
     )
+    allowed_protocols: frozenset[str] | None = None
+    allowed_directions: frozenset[str] | None = None
+    required_flow_options: frozenset[str] = field(default_factory=frozenset)
+    forbidden_keywords: frozenset[str] = field(
+        default_factory=lambda: frozenset(
+            {
+                "dataset",
+                "datarep",
+                "lua",
+                "filestore",
+                "tag",
+                "xbits",
+                "flowbits",
+            }
+        )
+    )
+    require_rev: bool = False
+    max_content_count: int = 64
+    max_pcre_count: int = 8
+    max_pcre_bytes: int = 4_096
+    max_byte_jump_count: int = 4
     positive_match_mode: Literal["all", "any"] = "all"
     max_rules: int = 20
     max_rule_bytes: int = 128 * 1024
@@ -82,6 +103,8 @@ RULE_ACTION_RE = re.compile(
     flags=re.IGNORECASE,
 )
 SID_OPTION_RE = re.compile(r"^\s*sid\s*:\s*(\d+)\s*$", re.IGNORECASE)
+REV_OPTION_RE = re.compile(r"^\s*rev\s*:\s*(\d+)\s*$", re.IGNORECASE)
+OPTION_NAME_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_.-]*)\s*(?::|$)")
 
 
 def clean_rule_text(text: str) -> str:
@@ -189,6 +212,34 @@ def _rule_sids(rule: str) -> list[int]:
     return sids
 
 
+def _rule_header_tokens(rule: str) -> list[str]:
+    return rule.split("(", 1)[0].strip().split()
+
+
+def _rule_options(rule: str) -> list[str]:
+    start = rule.find("(")
+    end = rule.rfind(")")
+    if start < 0 or end <= start:
+        return []
+    return _split_options(rule[start + 1 : end])
+
+
+def _option_name(option: str) -> str | None:
+    match = OPTION_NAME_RE.match(option)
+    return match.group(1).casefold() if match else None
+
+
+def _high_risk_pcre(option: str) -> bool:
+    """Detect common nested-quantifier shapes that can cause excessive backtracking."""
+    value = option.split(":", 1)[1] if ":" in option else ""
+    return bool(
+        re.search(
+            r"\([^)]*(?:\.\*|\.\+|[^\\][+*])[^)]*\)(?:[+*]|\{\d*,?\d*\})",
+            value,
+        )
+    )
+
+
 def extract_rule_sids(rules: str) -> list[int]:
     """提取真实 SID 选项，忽略注释和引号内的相似文本。"""
     return [sid for rule in _split_rule_blocks(rules) for sid in _rule_sids(rule)]
@@ -229,6 +280,82 @@ def static_check_rules(
             errors.append(
                 f"第 {index} 条规则 action 必须是 "
                 f"{sorted(policy.allowed_actions)}"
+            )
+
+        header_tokens = _rule_header_tokens(rule)
+        protocol = header_tokens[1].casefold() if len(header_tokens) >= 2 else None
+        if (
+            protocol is not None
+            and policy.allowed_protocols is not None
+            and protocol not in policy.allowed_protocols
+        ):
+            errors.append(
+                f"第 {index} 条规则 protocol 必须是 "
+                f"{sorted(policy.allowed_protocols)}"
+            )
+        direction = next(
+            (token for token in header_tokens if token in {"->", "<-", "<>"}),
+            None,
+        )
+        if direction is None:
+            errors.append(f"第 {index} 条规则缺少有效方向")
+        elif (
+            policy.allowed_directions is not None
+            and direction not in policy.allowed_directions
+        ):
+            errors.append(
+                f"第 {index} 条规则方向必须是 "
+                f"{sorted(policy.allowed_directions)}"
+            )
+
+        options = _rule_options(rule)
+        option_names = [name for option in options if (name := _option_name(option))]
+        forbidden = sorted(set(option_names) & policy.forbidden_keywords)
+        if forbidden:
+            errors.append(
+                f"第 {index} 条规则包含禁止关键字：{', '.join(forbidden)}"
+            )
+
+        flow_options: set[str] = set()
+        for option in options:
+            if _option_name(option) == "flow" and ":" in option:
+                flow_options.update(
+                    value.strip().casefold()
+                    for value in option.split(":", 1)[1].split(",")
+                    if value.strip()
+                )
+        missing_flow = policy.required_flow_options - flow_options
+        if missing_flow:
+            errors.append(
+                f"第 {index} 条规则缺少 flow 约束：{', '.join(sorted(missing_flow))}"
+            )
+
+        rev_count = sum(bool(REV_OPTION_RE.fullmatch(option)) for option in options)
+        if policy.require_rev and rev_count != 1:
+            errors.append(f"第 {index} 条规则必须包含且仅包含一个 rev")
+
+        content_count = option_names.count("content")
+        if content_count > policy.max_content_count:
+            errors.append(
+                f"第 {index} 条规则 content 数量超过 {policy.max_content_count}"
+            )
+        pcre_options = [
+            option for option in options if _option_name(option) == "pcre"
+        ]
+        if len(pcre_options) > policy.max_pcre_count:
+            errors.append(
+                f"第 {index} 条规则 PCRE 数量超过 {policy.max_pcre_count}"
+            )
+        if any(len(option.encode("utf-8")) > policy.max_pcre_bytes for option in pcre_options):
+            errors.append(
+                f"第 {index} 条规则单个 PCRE 超过 {policy.max_pcre_bytes} 字节"
+            )
+        if any(_high_risk_pcre(option) for option in pcre_options):
+            errors.append(f"第 {index} 条规则 PCRE 包含高风险嵌套量词")
+        byte_jump_count = option_names.count("byte_jump")
+        if byte_jump_count > policy.max_byte_jump_count:
+            errors.append(
+                f"第 {index} 条规则 byte_jump 数量超过 {policy.max_byte_jump_count}"
             )
 
         sids = _rule_sids(rule)
@@ -300,6 +427,7 @@ def run_command(
 ) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     # Suricata 不需要模型凭据，避免把密钥传给外部子进程。
+    environment.pop("LLM_API_KEY", None)
     environment.pop("DEEPSEEK_API_KEY", None)
     executable_dir = str(Path(command[0]).resolve().parent)
     path_entries = [executable_dir]

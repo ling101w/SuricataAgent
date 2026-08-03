@@ -1383,8 +1383,8 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    from direct_workflow import (
-        PIPELINE_VERSION,
+    from production import (
+        PIPELINE_ID,
         WorkflowConfig as DirectWorkflowConfig,
         run_generation as run_direct_generation,
     )
@@ -1435,7 +1435,8 @@ def main() -> int:
     }
     summary.update(
         {
-            "pipeline": PIPELINE_VERSION,
+            "pipeline": PIPELINE_ID,
+            "pipeline_id": PIPELINE_ID,
             "explanation": result.get("explanation"),
             "ruleops": result.get("ruleops"),
         }

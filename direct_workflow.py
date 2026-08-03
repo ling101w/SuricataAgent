@@ -23,6 +23,7 @@ from langgraph.graph import END, START, StateGraph
 from generate_pcap import PcapConfig
 from generate_tools import create_chat_model
 from poc_http_extractor import PocHttpExtractionError, extract_http_request
+from repair_constraints import RepairConstraints, accept_repair, compare_repair
 from rule_ir import parse_suricata_rule, rule_ir_to_dict
 from ruleops import RuleOpsStore
 from traffic_cases import TrafficSample, build_traffic_matrix
@@ -36,7 +37,10 @@ from validate_rules import (
 )
 
 
-PIPELINE_VERSION = "E-direct-repair-v1"
+PIPELINE_ID = "E-direct-repair-v1"
+# Backward-compatible alias for artifact consumers created before the production
+# entrypoint was centralized.
+PIPELINE_VERSION = PIPELINE_ID
 
 # Frozen from the hidden-test primary experiment. Do not tune these prompts against
 # benchmarks/hidden-test-v1.
@@ -86,10 +90,15 @@ class DirectAttempt(TypedDict, total=False):
     validation: RuleValidationResult | None
     feedback: dict[str, Any] | None
     rule_diff: str
+    constraint_violations: list[str]
+    accepted: bool
+    rejection_reasons: list[str]
+    acceptance_metrics: dict[str, object]
     error: str | None
 
 
 class DirectState(TypedDict, total=False):
+    pipeline_id: str
     case_id: str
     base: str
     poc: str
@@ -238,6 +247,34 @@ def _rule_diff(previous: str, current: str) -> str:
     )
 
 
+def _constraint_rejection_validation(
+    violations: Sequence[str],
+) -> RuleValidationResult:
+    return {
+        "passed": False,
+        "validation_level": "repair_constraints",
+        "completed_stages": [],
+        "failed_stage": "repair_constraints",
+        "error_code": "REPAIR_CONSTRAINT_VIOLATION",
+        "retryable": True,
+        "syntax_ok": None,
+        "positive_match_ok": None,
+        "negative_match_ok": None,
+        "expected_sids": [],
+        "positive_matched_sids": [],
+        "negative_matched_sids": [],
+        "errors": list(violations),
+        "warnings": [],
+        "command_output": "",
+        "sample_results": [],
+        "positive_coverage": 0.0,
+        "false_positive_count": 0,
+        "quality_warnings": [
+            "Candidate was rejected before Suricata execution by repair constraints."
+        ],
+    }
+
+
 def _sample_summary(sample: TrafficSample, split: str) -> dict[str, object]:
     value = sample.public_dict()
     value["split"] = split
@@ -274,6 +311,15 @@ def _policy(config: WorkflowConfig) -> RulePolicy:
     return RulePolicy(
         sid_start=config.sid_start,
         require_contiguous_sids=True,
+        allowed_protocols=frozenset({"http"}),
+        allowed_directions=frozenset({"->"}),
+        required_flow_options=frozenset({"established", "to_server"}),
+        require_rev=True,
+        max_rule_bytes=16 * 1024,
+        max_content_count=24,
+        max_pcre_count=2,
+        max_pcre_bytes=1_024,
+        max_byte_jump_count=0,
         positive_match_mode="all",
         max_rules=1,
     )
@@ -566,6 +612,10 @@ def build_workflow(
                 "validation": None,
                 "feedback": None,
                 "rule_diff": "",
+                "constraint_violations": [],
+                "accepted": True,
+                "rejection_reasons": [],
+                "acceptance_metrics": {},
                 "error": None,
             }
             output = Path(state["output_dir"])
@@ -589,28 +639,63 @@ def build_workflow(
     def execute_node(state: DirectState) -> dict[str, Any]:
         started = time.perf_counter()
         try:
-            validation = matrix_validator(
-                state["rules"],
-                state["repair_samples"],
-                policy=_policy(workflow_config),
-                suricata_bin=workflow_config.suricata_bin,
-                config_path=workflow_config.suricata_config,
-                syntax_timeout=workflow_config.syntax_timeout,
-                replay_timeout=workflow_config.replay_timeout,
-            )
             attempts = [dict(item) for item in state.get("attempts", [])]
-            if attempts:
-                attempts[-1]["execution_ms"] = round((time.perf_counter() - started) * 1_000)
-                attempts[-1]["validation"] = validation
+            current = attempts[-1]
+            violations = list(current.get("constraint_violations", []))
+            if current.get("kind") == "repair" and violations:
+                validation = _constraint_rejection_validation(violations)
+            else:
+                validation = matrix_validator(
+                    state["rules"],
+                    state["repair_samples"],
+                    policy=_policy(workflow_config),
+                    suricata_bin=workflow_config.suricata_bin,
+                    config_path=workflow_config.suricata_config,
+                    syntax_timeout=workflow_config.syntax_timeout,
+                    replay_timeout=workflow_config.replay_timeout,
+                )
+            current["execution_ms"] = round((time.perf_counter() - started) * 1_000)
+            current["validation"] = validation
+
+            active_rule = state["rules"]
+            active_validation = validation
+            if current.get("kind") == "repair":
+                incumbent = next(
+                    (
+                        item
+                        for item in reversed(attempts[:-1])
+                        if item.get("accepted") is not False
+                        and isinstance(item.get("validation"), dict)
+                    ),
+                    None,
+                )
+                if incumbent is None:
+                    raise ValueError("Repair 缺少已执行的基线规则")
+                if violations:
+                    accepted = False
+                    rejection_reasons = violations
+                    acceptance_metrics: dict[str, object] = {}
+                else:
+                    decision = accept_repair(incumbent["validation"], validation)
+                    accepted = decision.accepted
+                    rejection_reasons = list(decision.reasons)
+                    acceptance_metrics = decision.metrics
+                current["accepted"] = accepted
+                current["rejection_reasons"] = rejection_reasons
+                current["acceptance_metrics"] = acceptance_metrics
+                if not accepted:
+                    active_rule = str(incumbent["rule"])
+                    active_validation = incumbent["validation"]
             _write_json(
                 Path(state["output_dir"])
                 / "attempts"
-                / f"{state['attempt']:02d}-{attempts[-1].get('kind', 'attempt')}"
+                / f"{state['attempt']:02d}-{current.get('kind', 'attempt')}"
                 / "execution.json",
                 validation,
             )
             return {
-                "execute_validation": validation,
+                "rules": active_rule,
+                "execute_validation": active_validation,
                 "attempts": attempts,
                 "status": "running",
             }
@@ -632,6 +717,7 @@ def build_workflow(
                 "failure_message": "Repair 缺少 Execute 结果",
             }
         feedback = _feedback(validation, state["repair_samples"])
+        constraints = RepairConstraints.from_rule(state.get("initial_rule", previous))
         started = time.perf_counter()
         attempt_number = state["attempt"] + 1
         try:
@@ -642,6 +728,9 @@ def build_workflow(
                 "runtime feedback below.\n\n"
                 f"<evidence>\n{_evidence(state)}\n</evidence>\n"
                 f"<current_rule>\n{previous}\n</current_rule>\n"
+                "<repair_constraints>\n"
+                + json.dumps(constraints.public_dict(), ensure_ascii=False, indent=2)
+                + "\n</repair_constraints>\n"
                 "<runtime_feedback>\n"
                 + json.dumps(feedback, ensure_ascii=False, indent=2)
                 + "\n</runtime_feedback>"
@@ -656,6 +745,7 @@ def build_workflow(
             repaired = clean_rule_text(raw)
             if not repaired:
                 raise ValueError("模型返回了空 repair 规则")
+            constraint_violations = list(compare_repair(constraints, repaired))
             attempt: DirectAttempt = {
                 "attempt": attempt_number,
                 "kind": "repair",
@@ -666,6 +756,10 @@ def build_workflow(
                 "validation": None,
                 "feedback": feedback,
                 "rule_diff": _rule_diff(previous, repaired),
+                "constraint_violations": constraint_violations,
+                "accepted": False,
+                "rejection_reasons": [],
+                "acceptance_metrics": {},
                 "error": None,
             }
             attempt_dir = Path(state["output_dir"]) / "attempts" / f"{attempt_number:02d}-repair"
@@ -804,7 +898,8 @@ def build_workflow(
             elif state.get("rule_ir_error"):
                 _write_json(output / "generated.rule-ir-error.json", {"error": state["rule_ir_error"]})
             report = {
-                "pipeline": PIPELINE_VERSION,
+                "pipeline": PIPELINE_ID,
+                "pipeline_id": PIPELINE_ID,
                 "prompt_hashes": prompt_hashes(),
                 "case_id": state.get("case_id"),
                 "input_mode": state.get("input_mode", "http"),
@@ -923,6 +1018,7 @@ def run_generation(
 __all__ = [
     "DIRECT_REPAIR_SYSTEM_PROMPT",
     "DIRECT_SYSTEM_PROMPT",
+    "PIPELINE_ID",
     "PIPELINE_VERSION",
     "DirectState",
     "WorkflowConfig",

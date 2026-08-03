@@ -1185,6 +1185,59 @@ a:focus-visible {
   max-height: 520px;
 }
 
+.extraction-result-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+}
+
+.extraction-result-overview .result-metric:not(:last-child) {
+  border-right: 1px solid var(--line);
+}
+
+.extraction-candidate-list {
+  margin-bottom: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.extraction-candidate {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.extraction-candidate.is-selected {
+  border-left: 2px solid var(--teal);
+  background: var(--teal-soft);
+}
+
+.extraction-candidate > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.extraction-candidate strong,
+.extraction-candidate span {
+  overflow-wrap: anywhere;
+}
+
+.extraction-candidate span,
+.extraction-candidate code {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.extraction-output {
+  max-height: 440px;
+}
+
 .ruleops-workspace {
   height: calc(100dvh - 68px);
   max-width: 1680px;
@@ -2480,7 +2533,12 @@ a:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .ir-overview .result-metric {
+  .extraction-result-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ir-overview .result-metric,
+  .extraction-result-overview .result-metric {
     border-bottom: 1px solid var(--line);
   }
 

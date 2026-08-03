@@ -138,10 +138,6 @@ const artifactLabels = {
   poc_extraction: "PoC 提取报告",
   extracted_request: "提取请求",
   http_candidates: "HTTP 候选",
-  python_poc: "Python PoC",
-  poc_extraction: "PoC 提取",
-  http_candidates: "HTTP 候选",
-  extracted_request: "提取请求",
   extraction_report: "提取报告",
 };
 
@@ -304,7 +300,7 @@ async function loadRuntime() {
       problems.push(suricata.message || "Suricata 运行环境不可用");
     }
     if (!model.configured) {
-      problems.push("未设置 DEEPSEEK_API_KEY，设置后请重启 Web 服务");
+      problems.push("请设置 LLM_API_KEY、LLM_BASE_URL 和 LLM_MODEL，设置后重启 Web 服务");
     }
     elements.runtimeBanner.hidden = problems.length === 0;
     elements.runtimeBanner.textContent = problems.join("；");
@@ -1981,6 +1977,12 @@ function bindEvents() {
       elements.pythonPocSource.textContent = "文本输入 · 仅静态解析";
     }
     clearPocExtraction();
+  });
+  elements.extractedHttpRequest.addEventListener("input", () => {
+    if (appState.pocExtraction) {
+      elements.extractionStatus.textContent = "已人工调整";
+      elements.extractionMeta.textContent = "Raw HTTP override";
+    }
   });
   elements.httpRequest.addEventListener("input", () => markRawInputEdited("request"));
   elements.httpResponse.addEventListener("input", () => markRawInputEdited("response"));

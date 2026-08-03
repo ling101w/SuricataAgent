@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from generate_tools import create_chat_model
-from main import WorkflowConfig, run_generation
+from production import PIPELINE_ID, WorkflowConfig, run_generation
 from traffic_cases import derive_http_cases_with_diagnostics
 
 
@@ -315,6 +315,7 @@ def aggregate_benchmark_results(
     } if selected_complexities else None
     passed_cases = sum(item["status"] == "passed" for item in case_summaries)
     return {
+        "pipeline_id": PIPELINE_ID,
         "case_count": len(case_summaries),
         "passed_case_count": passed_cases,
         "case_pass_rate": _ratio(passed_cases, len(case_summaries)),
@@ -382,7 +383,6 @@ def run_full_benchmark(
     max_attempts: int = 3,
     suricata_bin: str | None = None,
     suricata_config: str | None = None,
-    strategy_catalog: str | None = None,
     model: object | None = None,
     runner: Callable[..., Mapping[str, Any]] = run_generation,
 ) -> dict[str, Any]:
@@ -432,7 +432,6 @@ def run_full_benchmark(
                         max_rule_attempts=max_attempts,
                         suricata_bin=suricata_bin,
                         suricata_config=suricata_config,
-                        strategy_catalog=strategy_catalog,
                     ),
                 )
             except Exception as exc:
@@ -470,10 +469,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--suricata-bin", default=os.getenv("SURICATA_BIN"))
     parser.add_argument("--suricata-config", default=os.getenv("SURICATA_CONFIG"))
-    parser.add_argument(
-        "--strategy-catalog",
-        default=os.getenv("DETECTION_STRATEGY_CATALOG"),
-    )
     return parser.parse_args()
 
 
@@ -501,7 +496,6 @@ def main() -> int:
             max_attempts=args.max_attempts,
             suricata_bin=args.suricata_bin,
             suricata_config=args.suricata_config,
-            strategy_catalog=args.strategy_catalog,
         )
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     return 0 if args.mode == "mutation-only" or report["case_pass_rate"] == 1.0 else 1

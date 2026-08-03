@@ -221,3 +221,79 @@ requests.get(target + "/download", params={"path": "../../etc/passwd"})
     assert (output / "poc-extraction.json").is_file()
     assert (output / "http-candidates.json").is_file()
     assert (output / "selected-request.raw").is_file()
+
+
+def test_low_confidence_python_poc_requires_raw_http_override(tmp_path: Path) -> None:
+    pcap = tmp_path / "sample.pcap"
+    pcap.write_bytes(b"pcap")
+    request = b"POST /exploit HTTP/1.1\r\nHost: target.local\r\n\r\npayload"
+    samples = TrafficSampleList(
+        [
+            TrafficSample("positive-original", "alert", "original", "original", pcap, request),
+            TrafficSample("positive-visible", "alert", "visible", "derived", pcap, request),
+            TrafficSample("negative-visible", "no_alert", "near miss", "derived", pcap, request),
+            TrafficSample("positive-heldout", "alert", "heldout", "derived", pcap, request),
+            TrafficSample("negative-heldout", "no_alert", "heldout", "derived", pcap, request),
+        ]
+    )
+    traffic_calls: list[bytes | str] = []
+
+    def build_samples(_output: Path, http_request: bytes | str, *_args: object, **_kwargs: object):
+        traffic_calls.append(http_request)
+        return samples
+
+    graph = build_workflow(
+        model=FakeModel(),
+        config=WorkflowConfig(
+            max_rule_attempts=3,
+            ruleops_path=str(tmp_path / "artifacts" / "rule-kb.json"),
+        ),
+        runtime_checker=lambda **_kwargs: {
+            "ok": True,
+            "suricata_bin": "suricata",
+            "config_path": "suricata.yaml",
+            "error_code": None,
+            "message": None,
+        },
+        traffic_builder=build_samples,
+        matrix_validator=_validation,
+    )
+    python_poc = (
+        "import requests\n"
+        "def exploit(url, payload):\n"
+        "    requests.post(url, data=payload)\n"
+    )
+    state = {
+        "case_id": "CVE-LOW-CONFIDENCE",
+        "base": "dynamic PoC",
+        "poc": "",
+        "python_poc": python_poc,
+        "python_poc_filename": "dynamic.py",
+        "input_mode": "python_poc",
+        "http_request": "",
+        "http_response": "",
+        "output_dir": str(tmp_path / "artifacts" / "low-confidence"),
+        "negative_pcap_paths": [],
+        "attempt": 0,
+        "attempts": [],
+        "status": "running",
+    }
+
+    blocked = graph.invoke(state)
+
+    assert blocked["status"] == "failed"
+    assert blocked["failure_code"] == "POC_HTTP_LOW_CONFIDENCE"
+    assert blocked["poc_extraction"]["accepted"] is False
+    assert traffic_calls == []
+
+    overridden = graph.invoke(
+        state
+        | {
+            "http_request": request,
+            "output_dir": str(tmp_path / "artifacts" / "manual-override"),
+        }
+    )
+
+    assert overridden["status"] == "passed"
+    assert overridden["poc_extraction"]["selected_request_overridden"] is True
+    assert traffic_calls == [request]

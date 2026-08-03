@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException, Response
 
 from poc_http_extractor import PocHttpExtractionError, extract_http_request
 
@@ -103,3 +104,74 @@ def test_rejects_code_without_materializable_http_request() -> None:
         extract_http_request("print('not an HTTP PoC')")
 
     assert error.value.code == "POC_HTTP_NO_REQUEST"
+
+
+def test_web_preview_endpoint_returns_structured_extraction() -> None:
+    from web_app import EncodedInput, PocExtractionRequest, extract_poc_http
+
+    result = extract_poc_http(
+        PocExtractionRequest(
+            python_poc=EncodedInput(
+                content=(
+                    'import requests\nrequests.get('
+                    '"http://target.local/download?file=../etc/passwd")\n'
+                ),
+                filename="exploit.py",
+            )
+        ),
+        Response(),
+    )
+
+    assert result["accepted"] is True
+    assert result["filename"] == "exploit.py"
+    assert result["selected"]["path"] == "/download?file=../etc/passwd"
+
+
+def test_web_preview_endpoint_returns_structured_error() -> None:
+    from web_app import EncodedInput, PocExtractionRequest, extract_poc_http
+
+    with pytest.raises(HTTPException) as error:
+        extract_poc_http(
+            PocExtractionRequest(
+                python_poc=EncodedInput(
+                    content="print('no HTTP request')",
+                    filename="not-an-exploit.py",
+                )
+            ),
+            Response(),
+        )
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "POC_HTTP_NO_REQUEST"
+
+
+def test_web_run_request_accepts_python_only_input() -> None:
+    from web_app import EncodedInput, RunRequest
+
+    payload = RunRequest(
+        case_id="CVE-PYTHON-ONLY",
+        base="Python-only PoC",
+        input_mode="python_poc",
+        python_poc=EncodedInput(
+            content='import requests\nrequests.get("http://target.local/exploit")\n'
+        ),
+    )
+
+    assert payload.http_request.content == ""
+    assert payload.poc == ""
+    assert payload.python_poc is not None
+
+
+def test_cli_case_input_reads_python_poc_path_relative_to_case(tmp_path) -> None:
+    from main import _case_input
+
+    source = b'import requests\nrequests.get("http://target.local/exploit")\n'
+    (tmp_path / "exploit.py").write_bytes(source)
+
+    result = _case_input(
+        {"python_poc_path": "exploit.py"},
+        "python_poc",
+        tmp_path,
+    )
+
+    assert result == source

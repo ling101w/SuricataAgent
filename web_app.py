@@ -14,13 +14,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from direct_workflow import PIPELINE_VERSION, WorkflowConfig, build_workflow
+from production import PIPELINE_ID, WorkflowConfig, build_workflow
 from poc_http_extractor import PocHttpExtractionError, extract_http_request
 from ruleops import RuleOpsStore
 from validate_rules import check_suricata_runtime
@@ -251,7 +252,8 @@ def _create_job(
         "explanation": None,
         "ruleops": None,
         "poc_extraction": None,
-        "pipeline": PIPELINE_VERSION,
+        "pipeline": PIPELINE_ID,
+        "pipeline_id": PIPELINE_ID,
         "attempts": [],
         "progress": _new_progress(),
         "events": [],
@@ -693,6 +695,7 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
         "case_id": job["case_id"],
         "input_mode": job["input_mode"],
         "pipeline": job["pipeline"],
+        "pipeline_id": job["pipeline_id"],
         "status": job["status"],
         "stage": job["stage"],
         "stage_label": STAGE_LABELS.get(job["stage"], job["stage"]),
@@ -740,16 +743,31 @@ def favicon() -> Response:
 def runtime_status(response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     runtime = check_suricata_runtime()
+    model_api_key = os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+    model_base_url = os.getenv("LLM_BASE_URL") or os.getenv("DEEPSEEK_BASE_URL")
+    model_name = os.getenv("LLM_MODEL") or os.getenv("DEEPSEEK_MODEL")
+    model_offline = os.getenv("LLM_OFFLINE", "").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     return {
-        "pipeline": PIPELINE_VERSION,
+        "pipeline": PIPELINE_ID,
+        "pipeline_id": PIPELINE_ID,
         "suricata": {
             "ok": runtime["ok"],
             "error_code": runtime["error_code"],
             "message": runtime["message"],
         },
         "model": {
-            "configured": bool(os.getenv("DEEPSEEK_API_KEY")),
-            "name": os.getenv("DEEPSEEK_MODEL", "gpt-5.5"),
+            "configured": bool(
+                model_api_key and model_base_url and model_name and not model_offline
+            ),
+            "provider": os.getenv("LLM_PROVIDER", "openai_compatible"),
+            "endpoint_host": urlsplit(model_base_url).hostname if model_base_url else None,
+            "name": model_name,
+            "offline": model_offline,
         },
         "limits": {
             "http_bytes": MAX_HTTP_BYTES,
@@ -872,6 +890,11 @@ def download_artifact(
         "supplemental_rule_ir",
         "final_judgment",
         "coverage_graph",
+        "python_poc",
+        "poc_extraction",
+        "extracted_request",
+        "http_candidates",
+        "extraction_report",
     ],
 ):
     with _jobs_lock:
@@ -889,6 +912,11 @@ def download_artifact(
         "supplemental_rule_ir": "application/json",
         "final_judgment": "application/json",
         "coverage_graph": "application/json",
+        "python_poc": "text/x-python; charset=utf-8",
+        "poc_extraction": "application/json",
+        "extracted_request": "application/http",
+        "http_candidates": "application/json",
+        "extraction_report": "application/json",
     }
     return FileResponse(
         path,
