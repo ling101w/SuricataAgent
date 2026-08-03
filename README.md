@@ -1,13 +1,50 @@
-# Suricata 规则生成工作流
+# SuricataAgent
 
-这个项目遵循“AI 做判断，系统做证明”。模型理解漏洞、生成 1～3 个检测策略、提出可选
-语义样本，并在多个候选通过门禁后做最终语义选择；Python 负责严格解析、确定性编译、
-SID/sticky buffer、真实 Suricata、PCAP、正负样本、回归数据和产物归档。
+SuricataAgent 把漏洞描述、PoC 和 HTTP 证据转换为经过真实 Suricata 回放验证的规则。
+当前生产主链固定为 hidden benchmark 中表现最好的 **E Direct + Execution-guided Repair**：
+模型直接使用完整 Suricata 表达能力生成规则，系统负责执行、反馈、最终验证和归档。
+
+```mermaid
+flowchart LR
+    P[Python PoC] --> X[Static HTTP Extraction<br/>Never execute PoC]
+    X --> A[Materialized Raw HTTP]
+    A --> B[Generate<br/>Direct Suricata Rule]
+    R[Supplied Raw HTTP] --> B
+    B --> C[Execute<br/>Repair-visible PCAPs]
+    C -->|failed and attempts remain| D[Repair<br/>Runtime feedback only]
+    D --> C
+    C -->|passed or budget exhausted| E[Verify<br/>Full matrix + held-out]
+    E --> F[Post-hoc Rule IR]
+    F --> G[Rule KB + Fingerprints]
+    G --> H[Same-case Joint Replay]
+    H --> I[Coverage Graph + Recommendations]
+```
+
+关键边界：
+
+- Generate 和 Repair 输出完整 Suricata rule，不经过生成期 IR 或 compiler。
+- 只有 Python PoC 时先通过 AST 静态提取请求；系统不会导入、执行或联网运行 PoC。
+- Repair 只看到固定的 repair split；`verify_only` 样本只在最终 Verify 使用，结果不回流。
+- Verify 是唯一交付门槛：syntax、全部正向样本和全部负向样本必须通过。
+- Rule IR 在 Verify 后解析，仅用于解释、指纹、搜索和规则治理，不影响生成结论。
+- 只有 verified 且可解析的 final rule 才进入 Rule KB。
+- Coverage Graph 只比较同一 case、同一完整 PCAP 矩阵上的联合回放结果；指纹相似本身
+  不能产生删除或支配建议。
+
+生产入口：
+
+```powershell
+python main.py case.json --output-dir artifacts --max-attempts 3
+python web_app.py
+```
+
+`main.py` 的 CLI 和 Web API 都运行 `E-direct-repair-v1`。旧 `main.build_workflow` 保留用于
+B/C 冻结消融复现，不再是默认产品路径。
 
 ## 现有结构化工作流（Legacy B/C）
 
-下面的 Detection Plan/Compiler 链路继续保留，用于现有应用兼容和冻结消融复现；Benchmark
-v0 已证明它不应继续作为新规则生成主线。当前选定的生成架构与实测结果见后文 F/G。
+下面的 Detection Plan/Compiler 链路继续保留，用于冻结消融复现；Benchmark v0 已证明
+它不应继续作为新规则生成主线。
 
 ```text
 运行环境预检
@@ -199,6 +236,18 @@ Coverage Graph 不参与单个 CVE 的在线候选选择，只用于历史规则
 必须证明当前全部 SID 都参与了回放；空结果、错配 SID 或无法证明完整性的旧报告会被
 拒绝，不能静默生成空的 `recommended.rules`。
 
+生产链中的 `ruleops.py` 在此基础上提供持久化 Rule KB：verified final rule 写入时计算
+文本 SHA-256、Evidence Fingerprint 和 Logic Fingerprint；文本或逻辑重复只增加
+observation，不重复创建规则。存储层会拒绝未通过最终 Verify 的输入；跨 CVE 去重记录用
+`case_ids` 保留全部 case membership，因此每个 case 仍可独立构建 Coverage Graph。每次
+写入后，系统会取同一 `case_id` 的 active rules，重映射到互不冲突的 evaluation SID，
+在当前完整矩阵上联合回放，再保存 Coverage Graph。Web API：
+
+```text
+GET /api/ruleops?q=<CVE-or-evidence>
+GET /api/ruleops/rules/<record-id>
+```
+
 分析已有规则库：
 
 ```powershell
@@ -237,7 +286,7 @@ python rule_library.py .\rules\history.rules `
 的淘汰簇不会进入 catalog，组合证据中的历史 endpoint 和参数绑定也会在建簇、检索和
 生成 Prompt 三层剥离。
 
-## 候选选择与重试
+## Legacy 候选选择与重试
 
 每个候选会分别得到规则、Rule IR、样本结果和复杂度。为减少重复启动 Suricata，
 实现可以批量回放后按 SID 拆分结果；某条规则造成批量语法失败时会单独加载，以隔离
@@ -313,16 +362,29 @@ PCRE、Cookie 检测和强制 endpoint/exploit heuristic。明细见
 | G Semantic Intent + Diagnosis + Repair | **91.7%** | **79.2%** | **75.0%** | 9.1% | 18.2% | **66.7% (8/12)** |
 
 `*` F 只有 6/12 条规则通过语法，FP 分母不完整，不能与完整评测系统直接比较。F 单独
-表现差，说明 semantic intent 不是一个可靠的零修复生成器；但 G 相比 E 把 held-out
-variant recall 从 58.3% 提高到 75.0%，held-out FP 保持 18.2%，并把 Verified 从 5/12
-提高到 8/12。因此当前 dev-set 决策是：生成主线采用 semantic intent + execution-guided
-diagnosis/minimal repair，Rule IR 只在最终规则生成后用于分析，不恢复生成期 compiler
-约束。完整快照位于
+表现差，说明 semantic intent 不是一个可靠的零修复生成器；G 在 dev set 上曾把
+held-out variant recall 从 58.3% 提高到 75.0%，并把 Verified 从 5/12 提高到 8/12。
+该开发集快照位于
 [`benchmarks/experiments/semantic-intent-repair-v1`](benchmarks/experiments/semantic-intent-repair-v1/)。
 
-这仍是开发集结论，不是最终泛化结论。30-CVE test set 在架构、prompt、模型和 evaluator
-冻结前不得运行；封存流程见
-[`benchmarks/HIDDEN_TEST_PROTOCOL.md`](benchmarks/HIDDEN_TEST_PROTOCOL.md)。
+随后在打开结果前预注册并封存了独立的 30-CVE / 150-PCAP hidden test。主实验只运行
+A、E、G；F 仅作为 G 的配对 source。最终结果否定了 dev 上的 G 主线结论：
+
+| 组别 | Syntax | Original | Held-out variant | Held-out FP | Verified | Avg latency |
+|---|---:|---:|---:|---:|---:|---:|
+| A Direct LLM | 90.0% | 73.3% | 50.0% (15/30) | 0% | 36.7% (11/30) | 34.9s |
+| E Direct + Repair | **100%** | **100%** | **73.3% (22/30)** | 6.7% (2/30) | **66.7% (20/30)** | 62.2s |
+| G Semantic Intent + Repair | 86.7% | 66.7% | 53.3% (16/30) | 0% | 53.3% (16/30) | 112.1s |
+
+预注册的 G 架构确认门槛要求 held-out recall 相比 A 至少 `+10pp` 且 FP 增长不超过
+`+5pp`；G 实际为 `+3.3pp / +0pp`，未通过。E 相比 A 的 held-out recall 提高
+`23.3pp`、Verified 提高 `30pp`，但 held-out FP 增加 `6.7pp`。因此生产主链固定为 E，
+下一阶段重点是 specificity-preserving repair，而不是继续在 hidden cases 上调整 G。
+
+数据集、运行清单、120 个原始结果和 SHA-256 freeze manifest 位于
+[`benchmarks/experiments/hidden-test-v1-primary`](benchmarks/experiments/hidden-test-v1-primary/)。
+协议见 [`benchmarks/HIDDEN_TEST_PROTOCOL.md`](benchmarks/HIDDEN_TEST_PROTOCOL.md)，预注册
+判定见 [`benchmarks/HIDDEN_TEST_PREREGISTRATION.md`](benchmarks/HIDDEN_TEST_PREREGISTRATION.md)。
 
 验证冻结产物：
 
@@ -330,6 +392,7 @@ diagnosis/minimal repair，Rule IR 只在最终规则生成后用于分析，不
 python -B benchmarks/freeze_v0_baseline.py --verify
 python -B benchmarks/freeze_direct_repair_experiment.py --verify
 python -B benchmarks/freeze_semantic_intent_experiment.py --verify
+python -B benchmarks/freeze_hidden_test_results.py --verify
 python -B benchmarks/audit_ir_expressiveness.py
 ```
 
@@ -347,8 +410,8 @@ $env:DEEPSEEK_API_KEY = "你的密钥"
 DEEPSEEK_API_KEY=你的密钥
 DEEPSEEK_MODEL=gpt-5.5
 DEEPSEEK_BASE_URL=https://api.example.com/v1
-# 可选：规则库分析生成的 Detection Strategy 目录
-DETECTION_STRATEGY_CATALOG=C:\path\to\detection-strategies.json
+# 可选：CLI 的持久化 Rule KB；Web 默认使用 artifacts/rule-kb.json
+RULEOPS_STORE=C:\path\to\rule-kb.json
 ```
 
 项目优先发现 `suricata/suricata.exe` 和 `suricata/suricata.yaml`。使用其他安装位置时
@@ -397,6 +460,20 @@ Windows 现在由 Python `subprocess.run()` 直接启动 Suricata，执行语法
 重复头、分块编码或二进制正文。也可以直接提供 `http_request` 和 `http_response`
 字符串。相对路径以 `case.json` 所在目录为基准。
 
+只有 Python PoC、没有 Raw HTTP 时，可以改为：
+
+```json
+{
+  "case_id": "CVE-example",
+  "base": "漏洞名称、版本和影响范围",
+  "python_poc_path": "exploit.py"
+}
+```
+
+系统会静态解析 `requests`、`httpx`、`urllib`、Pocsuite3 常见 HTTP 调用和 raw socket
+请求，生成 `poc-extraction.json` 与 `selected-request.raw` 后进入同一 E 主链。提取
+置信度不足时会返回 `POC_HTTP_LOW_CONFIDENCE`，不会执行 PoC 或伪造验证结果。
+
 运行：
 
 ```powershell
@@ -414,7 +491,9 @@ python web_app.py
 
 默认访问 `http://127.0.0.1:8000`。需要修改监听地址或端口时设置 `WEB_HOST` 和
 `WEB_PORT`。Web 支持文本或 Base64 原始 HTTP 输入、最多 4 个用户负样本、后台任务、
-逐样本矩阵、候选分数、每轮诊断与规则，以及 PCAP、规则和报告下载。
+repair/verify split、逐样本矩阵、规则 diff、可追溯结果解释、post-hoc IR，以及 PCAP、
+规则、Coverage Graph 和报告下载。RuleOps 工作区提供 KB 搜索、文本/逻辑去重记录、
+证据指纹分组和 same-case joint replay Coverage Graph。
 
 Web 默认只监听本机。PoC 和 HTTP 证据会发送到 `DEEPSEEK_BASE_URL` 指向的模型服务，
 不要提交不应离开本机的凭据或敏感流量。
@@ -425,34 +504,34 @@ Web 默认只监听本机。PoC 和 HTTP 证据会发送到 `DEEPSEEK_BASE_URL` 
 
 ```text
 artifacts/
-├── traffic.pcap                  # 原始正向样本的兼容入口
-├── samples/                      # 每个正向变体和近似负样本的独立 PCAP
-├── traffic-matrix.json           # 样本标签、来源、原因和路径
-├── traffic-mutations.json        # 未执行 body mutation 的结构化原因
-├── generated.rules               # 通过验证的漏洞特异主规则
-├── generated.rule-ir.json         # 主规则的统一中间表示
-├── supplemental.rules            # 通过响应 oracle 的攻击成功补充指标
-├── supplemental.rule-ir.json     # 补充指标的统一中间表示
-├── final-judgment.json            # 最终候选、语义理由和过拟合风险
-├── failed-candidate.rules        # 达到重试上限时的最后候选
-├── failed-candidate.rule-ir.json  # 失败候选存在时对应的 IR
-├── validation-report.json        # 最终状态、逐样本结果和全部尝试
-└── attempts/
-    ├── 001/
-    │   ├── detection-plan.json
-    │   ├── candidate-01.rules
-    │   ├── candidate-01-validation.json
-    │   ├── candidate-01-result.json
-    │   ├── candidate.rules       # 当轮选中并固定 SID 后的规则
-    │   ├── validation.json
-    │   ├── diagnosis.json        # 当轮失败时生成
-    │   └── attempt.json
-    └── 002/
-        └── ...
+├── rule-kb.json                   # 跨运行持久化 verified Rule KB
+└── <run-id>/
+    ├── traffic.pcap               # 原始正向样本的兼容入口
+    ├── samples/                   # 每个正向变体和近似负样本的独立 PCAP
+    ├── traffic-matrix.json        # 样本标签、原因与 repair/verify split
+    ├── traffic-mutations.json     # 未执行 mutation 的结构化原因
+    ├── generated.rules            # 通过最终 Verify 的规则
+    ├── failed-candidate.rules     # 未达到交付门槛的最后规则
+    ├── generated.rule-ir.json     # Final Rule 的后置 IR
+    ├── generated.rule-ir-error.json
+    ├── coverage-graph.json        # 同 case 规则联合回放证据
+    ├── validation-report.json     # prompt hash、解释、逐样本结果与尝试
+    └── attempts/
+        ├── 01-generate/
+        │   ├── model-response.txt
+        │   ├── output.rules
+        │   └── execution.json
+        └── 02-repair/
+            ├── input.rules
+            ├── feedback.json
+            ├── model-response.txt
+            ├── output.rules
+            └── execution.json
 ```
 
-模型超时或 schema 错误也会在对应 `attempts/NNN/` 中保存
-`generation-error.json` 和原始 `model-response.txt`，不会再用后一轮状态覆盖前一轮证据。
+每次 Repair 都保存输入规则、模型可见 feedback、输出规则、diff 和 Execute 结果；
+Verify-only 样本不会出现在这些 feedback 文件中。`validation-report.json` 固化 pipeline
+version 与 generate/repair prompt SHA-256，后一轮状态不会覆盖前一轮证据。
 
 ## 测试
 

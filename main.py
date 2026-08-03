@@ -1341,16 +1341,16 @@ def run_generation(
     )
 
 
-def _http_input(case: dict[str, Any], key: str, case_dir: Path) -> str | bytes:
+def _case_input(case: dict[str, Any], key: str, case_dir: Path) -> str | bytes:
     path_value = case.get(f"{key}_path")
     if path_value:
         path = Path(path_value)
         if not path.is_absolute():
             path = case_dir / path
         return path.read_bytes()
-    value = case.get(key)
+    value = case.get(key, "")
     if not isinstance(value, str):
-        raise ValueError(f"输入必须包含 {key} 或 {key}_path")
+        raise ValueError(f"{key} 必须是字符串，或通过 {key}_path 指向文件")
     return value
 
 
@@ -1366,7 +1366,7 @@ def _case_paths(values: Sequence[str], case_dir: Path) -> list[str]:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="提取检测特征、编译 Suricata 规则并验证样本矩阵"
+        description="运行 E Direct Generate -> Execute -> Repair -> Verify 主链"
     )
     parser.add_argument("case", type=Path, help="JSON 格式的检测案例")
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
@@ -1375,29 +1375,45 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--suricata-bin", default=os.getenv("SURICATA_BIN"))
     parser.add_argument("--suricata-config", default=os.getenv("SURICATA_CONFIG"))
     parser.add_argument(
-        "--strategy-catalog",
-        default=os.getenv("DETECTION_STRATEGY_CATALOG"),
+        "--ruleops-store",
+        type=Path,
+        default=Path(os.getenv("RULEOPS_STORE", "artifacts/rule-kb.json")),
     )
     return parser.parse_args()
 
 
 def main() -> int:
+    from direct_workflow import (
+        PIPELINE_VERSION,
+        WorkflowConfig as DirectWorkflowConfig,
+        run_generation as run_direct_generation,
+    )
+
     args = _parse_args()
     case_path = args.case.resolve()
     case = json.loads(case_path.read_text(encoding="utf-8"))
-    config = WorkflowConfig(
+    config = DirectWorkflowConfig(
         sid_start=args.sid_start,
         max_rule_attempts=args.max_attempts,
         suricata_bin=args.suricata_bin,
         suricata_config=args.suricata_config,
-        strategy_catalog=args.strategy_catalog,
+        ruleops_path=str(args.ruleops_store.resolve()),
     )
-    result = run_generation(
+    python_poc = _case_input(case, "python_poc", case_path.parent)
+    python_poc_path = case.get("python_poc_path")
+    python_poc_filename = (
+        Path(str(python_poc_path)).name
+        if python_poc_path
+        else str(case.get("python_poc_filename", "poc.py"))
+    )
+    result = run_direct_generation(
         case_id=str(case.get("case_id", case_path.stem)),
         base=str(case.get("base", "")),
         poc=str(case.get("poc", "")),
-        http_request=_http_input(case, "http_request", case_path.parent),
-        http_response=_http_input(case, "http_response", case_path.parent),
+        http_request=_case_input(case, "http_request", case_path.parent),
+        http_response=_case_input(case, "http_response", case_path.parent),
+        python_poc=python_poc,
+        python_poc_filename=python_poc_filename,
         negative_pcap_paths=_case_paths(
             case.get("negative_pcap_paths", []),
             case_path.parent,
@@ -1410,7 +1426,6 @@ def main() -> int:
         for key in (
             "status",
             "attempt",
-            "selected_candidate",
             "pcap_path",
             "rules_path",
             "report_path",
@@ -1418,6 +1433,13 @@ def main() -> int:
             "failure_message",
         )
     }
+    summary.update(
+        {
+            "pipeline": PIPELINE_VERSION,
+            "explanation": result.get("explanation"),
+            "ruleops": result.get("ruleops"),
+        }
+    )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if result.get("status") == "passed" else 1
 

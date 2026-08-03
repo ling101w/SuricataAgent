@@ -1,6 +1,8 @@
 "use strict";
 
 const elements = {
+  generatorWorkspace: document.getElementById("generatorWorkspace"),
+  ruleopsWorkspace: document.getElementById("ruleopsWorkspace"),
   form: document.getElementById("generationForm"),
   caseId: document.getElementById("caseId"),
   sidStart: document.getElementById("sidStart"),
@@ -9,6 +11,16 @@ const elements = {
   maxAttempts: document.getElementById("maxAttempts"),
   httpRequest: document.getElementById("httpRequest"),
   httpResponse: document.getElementById("httpResponse"),
+  httpEvidenceEditor: document.getElementById("httpEvidenceEditor"),
+  pythonPocEditor: document.getElementById("pythonPocEditor"),
+  pythonPoc: document.getElementById("pythonPoc"),
+  pythonPocFile: document.getElementById("pythonPocFile"),
+  pythonPocSource: document.getElementById("pythonPocSource"),
+  importPythonPoc: document.getElementById("importPythonPoc"),
+  extractPythonPoc: document.getElementById("extractPythonPoc"),
+  extractedHttpRequest: document.getElementById("extractedHttpRequest"),
+  extractionStatus: document.getElementById("extractionStatus"),
+  extractionMeta: document.getElementById("extractionMeta"),
   requestFile: document.getElementById("requestFile"),
   responseFile: document.getElementById("responseFile"),
   requestSource: document.getElementById("requestSource"),
@@ -55,6 +67,26 @@ const elements = {
   failureBanner: document.getElementById("failureBanner"),
   failureCode: document.getElementById("failureCode"),
   failureMessage: document.getElementById("failureMessage"),
+  explanationHero: document.getElementById("explanationHero"),
+  explanationVerdict: document.getElementById("explanationVerdict"),
+  explanationHeadline: document.getElementById("explanationHeadline"),
+  explanationSummary: document.getElementById("explanationSummary"),
+  explanationScore: document.getElementById("explanationScore"),
+  explanationChecks: document.getElementById("explanationChecks"),
+  failedSamplesSection: document.getElementById("failedSamplesSection"),
+  failedSampleList: document.getElementById("failedSampleList"),
+  limitationList: document.getElementById("limitationList"),
+  irOverview: document.getElementById("irOverview"),
+  irOutput: document.getElementById("irOutput"),
+  extractionResultOverview: document.getElementById("extractionResultOverview"),
+  extractionCandidateList: document.getElementById("extractionCandidateList"),
+  extractionOutput: document.getElementById("extractionOutput"),
+  ruleopsSearch: document.getElementById("ruleopsSearch"),
+  ruleopsStats: document.getElementById("ruleopsStats"),
+  ruleListCount: document.getElementById("ruleListCount"),
+  ruleopsRuleList: document.getElementById("ruleopsRuleList"),
+  coverageGraphView: document.getElementById("coverageGraphView"),
+  duplicateGroups: document.getElementById("duplicateGroups"),
   toast: document.getElementById("toast"),
 };
 
@@ -68,14 +100,21 @@ const appState = {
     request: null,
     response: null,
   },
+  evidenceMode: "http",
+  pythonPocFile: null,
+  pocExtraction: null,
   negativeFiles: [],
+  workspace: "generator",
+  ruleops: null,
+  selectedRuleopsRecord: null,
+  ruleopsSearchTimer: null,
 };
 
 const statusLabels = {
   queued: "等待调度",
   running: "正在运行",
   passed: "验证通过",
-  failed: "运行失败",
+  failed: "未通过验证",
 };
 
 const eventStatusLabels = {
@@ -94,6 +133,16 @@ const artifactLabels = {
   rule_ir: "Rule IR",
   supplemental_rule_ir: "补充 Rule IR",
   final_judgment: "Final Judge",
+  coverage_graph: "Coverage Graph",
+  python_poc: "Python PoC",
+  poc_extraction: "PoC 提取报告",
+  extracted_request: "提取请求",
+  http_candidates: "HTTP 候选",
+  python_poc: "Python PoC",
+  poc_extraction: "PoC 提取",
+  http_candidates: "HTTP 候选",
+  extracted_request: "提取请求",
+  extraction_report: "提取报告",
 };
 
 const candidateScopeLabels = {
@@ -286,6 +335,21 @@ function switchInputTab(name) {
   });
 }
 
+function switchEvidenceMode(mode) {
+  appState.evidenceMode = mode === "python_poc" ? "python_poc" : "http";
+  const pythonMode = appState.evidenceMode === "python_poc";
+  elements.httpEvidenceEditor.hidden = pythonMode;
+  elements.pythonPocEditor.hidden = !pythonMode;
+  elements.httpRequest.required = !pythonMode;
+  elements.pythonPoc.required = pythonMode;
+  elements.poc.required = !pythonMode;
+  document.querySelectorAll("[data-evidence-mode]").forEach((button) => {
+    const active = button.dataset.evidenceMode === appState.evidenceMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+}
+
 function switchResultTab(name) {
   document.querySelectorAll("[data-result-tab]").forEach((button) => {
     const active = button.dataset.resultTab === name;
@@ -297,6 +361,307 @@ function switchResultTab(name) {
     panel.hidden = !active;
     panel.classList.toggle("is-active", active);
   });
+}
+
+function switchWorkspace(name) {
+  const ruleops = name === "ruleops";
+  appState.workspace = ruleops ? "ruleops" : "generator";
+  elements.generatorWorkspace.hidden = ruleops;
+  elements.ruleopsWorkspace.hidden = !ruleops;
+  document.querySelectorAll("[data-workspace]").forEach((button) => {
+    const active = button.dataset.workspace === appState.workspace;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  if (ruleops) loadRuleOps(elements.ruleopsSearch.value.trim());
+}
+
+function renderExplanation(explanation) {
+  const value = explanation || {};
+  const verdict = value.verdict || "pending";
+  const labels = {
+    verified: "VERIFIED",
+    rejected: "REJECTED",
+    not_verified: "NOT VERIFIED",
+    pending: "PENDING",
+  };
+  elements.explanationHero.className = `explanation-hero is-${verdict}`;
+  elements.explanationVerdict.textContent = labels[verdict] || String(verdict).toUpperCase();
+  elements.explanationHeadline.textContent = value.headline || "尚未形成交付结论";
+  elements.explanationSummary.textContent =
+    value.summary || "完整 Verify 结束后，这里会给出可追溯的结果解释。";
+  elements.explanationScore.textContent = verdict === "verified" ? "PASS" : verdict === "rejected" ? "FAIL" : "—";
+
+  elements.explanationChecks.replaceChildren();
+  const checks = Array.isArray(value.checks) ? value.checks : [];
+  if (!checks.length) {
+    appendEmptyState(elements.explanationChecks, "等待 runtime evidence");
+  } else {
+    checks.forEach((check) => {
+      const row = document.createElement("div");
+      row.className = `explanation-check is-${check.passed ? "passed" : "failed"}`;
+      const icon = document.createElement("i");
+      icon.dataset.lucide = check.passed ? "check" : "x";
+      const label = document.createElement("span");
+      label.textContent = check.label || "Check";
+      const detail = document.createElement("strong");
+      detail.textContent = check.detail || (check.passed ? "通过" : "失败");
+      row.append(icon, label, detail);
+      elements.explanationChecks.append(row);
+    });
+  }
+
+  const failed = Array.isArray(value.failed_samples) ? value.failed_samples : [];
+  elements.failedSamplesSection.hidden = failed.length === 0;
+  elements.failedSampleList.replaceChildren();
+  failed.forEach((sample) => {
+    const row = document.createElement("div");
+    row.className = "failed-sample-row";
+    const identity = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = sample.name || "unknown sample";
+    const reason = document.createElement("span");
+    reason.textContent = sample.reason || "未提供样本说明";
+    identity.append(name, reason);
+    const observed = document.createElement("code");
+    const sids = Array.isArray(sample.matched_sids) ? sample.matched_sids : [];
+    observed.textContent = sample.expected === "alert"
+      ? sids.length ? `命中 ${sids.join(", ")}` : "未告警"
+      : sids.length ? `误报 ${sids.join(", ")}` : "无告警";
+    row.append(identity, observed);
+    elements.failedSampleList.append(row);
+  });
+
+  elements.limitationList.replaceChildren();
+  const limitations = Array.isArray(value.limitations) ? value.limitations : [];
+  limitations.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    elements.limitationList.append(li);
+  });
+  if (!limitations.length) {
+    const li = document.createElement("li");
+    li.textContent = "等待最终验证边界。";
+    elements.limitationList.append(li);
+  }
+  refreshIcons();
+}
+
+function renderRuleIR(ruleIr) {
+  elements.irOverview.replaceChildren();
+  const code = elements.irOutput.querySelector("code");
+  if (!ruleIr) {
+    code.textContent = "Verify 后解析 Final Rule…";
+    appendEmptyState(elements.irOverview, "IR 不参与生成、Repair 或 Verify 门槛");
+    return;
+  }
+  appendMetric(elements.irOverview, "SID", String(ruleIr.sid ?? "—"));
+  appendMetric(elements.irOverview, "方向", ruleIr.direction || "—");
+  appendMetric(elements.irOverview, "Scope", ruleIr.detection_scope || "—");
+  appendMetric(elements.irOverview, "特征", String((ruleIr.features || []).length));
+  const evidence = ruleIr.evidence || {};
+  appendMetric(
+    elements.irOverview,
+    "证据原子",
+    String(Object.values(evidence).flatMap((items) => Array.isArray(items) ? items : []).length),
+  );
+  code.textContent = JSON.stringify(ruleIr, null, 2);
+}
+
+function renderPocExtraction(extraction, inputMode = "http") {
+  elements.extractionResultOverview.replaceChildren();
+  elements.extractionCandidateList.replaceChildren();
+  const code = elements.extractionOutput.querySelector("code");
+  if (!extraction) {
+    appendEmptyState(
+      elements.extractionResultOverview,
+      inputMode === "python_poc" ? "等待 prepare 阶段静态提取" : "当前任务使用 Raw HTTP 输入",
+    );
+    code.textContent = inputMode === "python_poc"
+      ? "Python PoC 尚未形成可回放请求…"
+      : "HTTP 输入不需要 PoC 提取…";
+    return;
+  }
+  const selected = extraction.selected || {};
+  appendMetric(elements.extractionResultOverview, "Adapter", extraction.adapter || "—");
+  appendMetric(elements.extractionResultOverview, "候选", String(extraction.candidate_count ?? 0));
+  appendMetric(
+    elements.extractionResultOverview,
+    "Confidence",
+    selected.confidence == null ? "—" : String(selected.confidence),
+    extraction.accepted ? "is-good" : "is-warning",
+  );
+  appendMetric(
+    elements.extractionResultOverview,
+    "请求来源",
+    extraction.selected_request_overridden ? "人工补全" : "静态提取",
+  );
+  (extraction.candidates || []).forEach((candidate, index) => {
+    const row = document.createElement("div");
+    row.className = `extraction-candidate${index === extraction.selected_index ? " is-selected" : ""}`;
+    const identity = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${candidate.method || "HTTP"} ${candidate.path || "/"}`;
+    const source = document.createElement("span");
+    source.textContent = `${candidate.client || "unknown"} · line ${candidate.source_line || "—"}`;
+    identity.append(title, source);
+    const confidence = document.createElement("code");
+    confidence.textContent = `confidence ${candidate.confidence ?? "—"}`;
+    row.append(identity, confidence);
+    elements.extractionCandidateList.append(row);
+  });
+  code.textContent = selected.raw_request || "没有可展示的 Raw HTTP";
+}
+
+function statBlock(label, value) {
+  const item = document.createElement("div");
+  item.className = "ruleops-stat";
+  const title = document.createElement("span");
+  title.textContent = label;
+  const number = document.createElement("strong");
+  number.textContent = String(value ?? 0);
+  item.append(title, number);
+  return item;
+}
+
+function renderCoverageSnapshot(record, snapshots) {
+  elements.coverageGraphView.replaceChildren();
+  if (!record) {
+    appendEmptyState(elements.coverageGraphView, "选择一条规则查看同 case Coverage Graph");
+    return;
+  }
+  const snapshot = snapshots?.[record.case_id];
+  if (!snapshot) {
+    appendEmptyState(elements.coverageGraphView, "该 case 尚无 joint replay coverage evidence");
+    return;
+  }
+  const summary = document.createElement("div");
+  summary.className = "coverage-evidence-strip";
+  [
+    ["证据", snapshot.evidence === "joint_runtime_replay" ? "Joint replay" : snapshot.evidence],
+    ["规则", snapshot.rule_count],
+    ["样本", snapshot.sample_count],
+    ["推荐", (snapshot.recommended_record_ids || []).length],
+  ].forEach(([label, value]) => summary.append(statBlock(label, value)));
+  elements.coverageGraphView.append(summary);
+
+  const graph = snapshot.graph || {};
+  const sidMap = snapshot.evaluation_sid_map || {};
+  const nodes = document.createElement("div");
+  nodes.className = "coverage-node-list";
+  (graph.nodes || []).forEach((node) => {
+    const mapped = sidMap[String(node.sid)] || {};
+    const row = document.createElement("div");
+    row.className = `coverage-node${(graph.recommended_sids || []).includes(node.sid) ? " is-recommended" : ""}`;
+    const title = document.createElement("strong");
+    title.textContent = mapped.record_id || `evaluation SID ${node.sid}`;
+    const detail = document.createElement("span");
+    detail.textContent = `SID ${mapped.deployment_sid ?? "—"} · TP ${node.positive_hits?.length || 0} · FP ${node.negative_hits?.length || 0}`;
+    row.append(title, detail);
+    nodes.append(row);
+  });
+  elements.coverageGraphView.append(nodes);
+
+  const relations = document.createElement("div");
+  relations.className = "coverage-relation-list";
+  (graph.relations || []).forEach((relation) => {
+    const row = document.createElement("div");
+    const source = sidMap[String(relation.source_sid)]?.record_id || relation.source_sid;
+    const target = sidMap[String(relation.target_sid)]?.record_id || relation.target_sid;
+    row.textContent = `${source} → ${target}`;
+    const kind = document.createElement("code");
+    kind.textContent = relation.kind;
+    row.append(kind);
+    relations.append(row);
+  });
+  if (!(graph.relations || []).length) appendEmptyState(relations, "没有可证明的重复或支配关系");
+  elements.coverageGraphView.append(relations);
+}
+
+function renderRuleOps(data) {
+  appState.ruleops = data;
+  const stats = data?.stats || {};
+  elements.ruleopsStats.replaceChildren(
+    statBlock("Verified rules", stats.verified),
+    statBlock("Cases", stats.cases),
+    statBlock("去重命中", stats.duplicate_observations),
+    statBlock("Coverage sets", stats.coverage_snapshots),
+  );
+  const records = Array.isArray(data?.records) ? data.records : [];
+  if (
+    appState.selectedRuleopsRecord &&
+    !records.some((record) => record.record_id === appState.selectedRuleopsRecord.record_id)
+  ) {
+    appState.selectedRuleopsRecord = null;
+  }
+  if (!appState.selectedRuleopsRecord && records.length) {
+    appState.selectedRuleopsRecord = records[0];
+  }
+  elements.ruleListCount.textContent = `${records.length} 条`;
+  elements.ruleopsRuleList.replaceChildren();
+  if (!records.length) appendEmptyState(elements.ruleopsRuleList, "没有匹配的 verified rule");
+  records.forEach((record) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `ruleops-rule-row${appState.selectedRuleopsRecord?.record_id === record.record_id ? " is-selected" : ""}`;
+    const top = document.createElement("div");
+    const caseId = document.createElement("strong");
+    const caseIds = Array.isArray(record.case_ids) && record.case_ids.length
+      ? record.case_ids
+      : [record.case_id];
+    caseId.textContent = caseIds.length > 2
+      ? `${caseIds.slice(0, 2).join(" · ")} · +${caseIds.length - 2}`
+      : caseIds.join(" · ");
+    const sid = document.createElement("code");
+    sid.textContent = `SID ${record.sid}`;
+    top.append(caseId, sid);
+    const evidence = document.createElement("span");
+    const endpoint = record.evidence?.endpoint || [];
+    const exploit = record.evidence?.exploit || [];
+    evidence.textContent = [...endpoint, ...exploit].slice(0, 3).join(" · ") || "未分类证据";
+    const footer = document.createElement("small");
+    footer.textContent = `${record.direction || "request"} · ${record.detection_scope || "case_specific"} · ${record.logic_fingerprint?.slice(0, 16) || "no fingerprint"}`;
+    button.append(top, evidence, footer);
+    button.addEventListener("click", () => {
+      appState.selectedRuleopsRecord = record;
+      renderRuleOps(appState.ruleops);
+      renderCoverageSnapshot(record, appState.ruleops.coverage_snapshots);
+    });
+    elements.ruleopsRuleList.append(button);
+  });
+  renderCoverageSnapshot(appState.selectedRuleopsRecord, data?.coverage_snapshots || {});
+
+  elements.duplicateGroups.replaceChildren();
+  const groups = Array.isArray(data?.duplicate_groups) ? data.duplicate_groups : [];
+  if (groups.length) {
+    const heading = document.createElement("div");
+    heading.className = "section-heading";
+    const title = document.createElement("strong");
+    title.textContent = "Evidence overlap";
+    const count = document.createElement("span");
+    count.textContent = `${groups.length} 组`;
+    heading.append(title, count);
+    elements.duplicateGroups.append(heading);
+    groups.forEach((group) => {
+      const row = document.createElement("div");
+      row.className = "duplicate-group-row";
+      row.textContent = group.case_ids.join(" · ");
+      const code = document.createElement("code");
+      code.textContent = group.evidence_fingerprint.slice(0, 22);
+      row.append(code);
+      elements.duplicateGroups.append(row);
+    });
+  }
+  refreshIcons();
+}
+
+async function loadRuleOps(query = "") {
+  try {
+    const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
+    renderRuleOps(await apiFetch(`/api/ruleops${suffix}`));
+  } catch (error) {
+    showToast(error.message, true);
+  }
 }
 
 function sourceElements(kind) {
@@ -420,6 +785,68 @@ async function encodedHttpInput(kind) {
   };
 }
 
+async function encodedPythonPoc() {
+  if (!appState.pythonPocFile) {
+    return {
+      encoding: "utf8",
+      content: elements.pythonPoc.value,
+      filename: "poc.py",
+    };
+  }
+  return {
+    encoding: "base64",
+    content: arrayBufferToBase64(await appState.pythonPocFile.arrayBuffer()),
+    filename: appState.pythonPocFile.name,
+  };
+}
+
+function clearPocExtraction() {
+  appState.pocExtraction = null;
+  elements.extractionStatus.textContent = "尚未提取";
+  elements.extractionMeta.textContent = "AST static analysis";
+  elements.extractedHttpRequest.value = "";
+}
+
+async function importPythonPoc(file) {
+  const limit = appState.runtime?.limits?.python_poc_bytes || 1024 * 1024;
+  if (file.size > limit) {
+    showToast(`Python PoC 超过 ${formatBytes(limit)} 限制`, true);
+    return;
+  }
+  appState.pythonPocFile = file;
+  elements.pythonPoc.value = new TextDecoder("utf-8", { fatal: false }).decode(
+    await file.arrayBuffer(),
+  );
+  elements.pythonPocSource.textContent = `${file.name} · 仅静态解析`;
+  elements.pythonPocFile.value = "";
+  clearPocExtraction();
+}
+
+async function extractPythonHttp() {
+  if (!elements.pythonPoc.value.trim()) {
+    showToast("Python PoC 不能为空", true);
+    return;
+  }
+  elements.extractPythonPoc.disabled = true;
+  elements.extractionStatus.textContent = "正在提取";
+  try {
+    const extraction = await apiFetch("/api/poc/extract", {
+      method: "POST",
+      body: JSON.stringify({ python_poc: await encodedPythonPoc() }),
+    });
+    appState.pocExtraction = extraction;
+    elements.extractedHttpRequest.value = extraction.selected?.raw_request || "";
+    elements.extractionStatus.textContent = extraction.accepted ? "提取完成" : "需要人工补全";
+    elements.extractionMeta.textContent = `${extraction.candidate_count} 个候选 · confidence ${extraction.selected?.confidence ?? "—"}`;
+  } catch (error) {
+    clearPocExtraction();
+    elements.extractionStatus.textContent = "提取失败";
+    showToast(error.message, true);
+  } finally {
+    elements.extractPythonPoc.disabled = false;
+  }
+}
+
 async function encodedNegativeFiles() {
   return Promise.all(
     appState.negativeFiles.map(async (file) => ({
@@ -433,6 +860,7 @@ function initialRunView(maxAttempts) {
   return {
     job_id: "pending",
     case_id: elements.caseId.value,
+    input_mode: appState.evidenceMode,
     status: "queued",
     stage: "preflight",
     stage_label: "环境预检",
@@ -445,13 +873,20 @@ function initialRunView(maxAttempts) {
     mutation_skips: [],
     final_judgment: null,
     rule_ir: null,
+    explanation: null,
+    ruleops: null,
+    poc_extraction: null,
+    pipeline: "E-direct-repair-v1",
     attempts: [],
     progress: [
       { id: "preflight", status: "running", runs: 0 },
-      { id: "build_samples", status: "pending", runs: 0 },
-      { id: "extract_features", status: "pending", runs: 0 },
-      { id: "evaluate_candidates", status: "pending", runs: 0 },
-      { id: "diagnose_failure", status: "pending", runs: 0 },
+      { id: "prepare", status: "pending", runs: 0 },
+      { id: "generate", status: "pending", runs: 0 },
+      { id: "execute", status: "pending", runs: 0 },
+      { id: "repair", status: "pending", runs: 0 },
+      { id: "verify", status: "pending", runs: 0 },
+      { id: "parse_ir", status: "pending", runs: 0 },
+      { id: "ruleops", status: "pending", runs: 0 },
       { id: "persist", status: "pending", runs: 0 },
     ],
     events: [],
@@ -474,17 +909,27 @@ async function submitRun(event) {
   updateRunButton();
 
   try {
-    const [httpRequest, httpResponse, negativePcaps] = await Promise.all([
-      encodedHttpInput("request"),
+    const [httpRequest, httpResponse, pythonPoc, negativePcaps] = await Promise.all([
+      appState.evidenceMode === "python_poc"
+        ? Promise.resolve({
+            encoding: "utf8",
+            content: elements.extractedHttpRequest.value,
+          })
+        : encodedHttpInput("request"),
       encodedHttpInput("response"),
+      appState.evidenceMode === "python_poc"
+        ? encodedPythonPoc()
+        : Promise.resolve(null),
       encodedNegativeFiles(),
     ]);
     const payload = {
       case_id: elements.caseId.value.trim(),
       base: elements.base.value,
       poc: elements.poc.value,
+      input_mode: appState.evidenceMode,
       http_request: httpRequest,
       http_response: httpResponse,
+      python_poc: pythonPoc,
       negative_pcaps: negativePcaps,
       options: {
         sid_start: Number(elements.sidStart.value),
@@ -821,7 +1266,8 @@ function renderSampleMatrix(job) {
     name.textContent = sample.name || `样本 ${index + 1}`;
     const meta = document.createElement("span");
     meta.className = "sample-source";
-    meta.textContent = sourceLabel(sample.source);
+    const splitLabel = sample.split === "repair" ? "Repair 可见" : sample.split === "verify_only" ? "Verify only" : "";
+    meta.textContent = [sourceLabel(sample.source), splitLabel].filter(Boolean).join(" · ");
     const requestLine = document.createElement("code");
     requestLine.className = "sample-request-line";
     requestLine.textContent = sample.request_line || "无请求行";
@@ -1182,8 +1628,14 @@ function renderAttempts(attempts = []) {
     const number = document.createElement("strong");
     number.textContent = `第 ${attempt.attempt ?? index + 1} 次尝试`;
     const outcome = document.createElement("span");
-    outcome.className = `attempt-outcome${attempt.generation_error ? " is-failed" : ""}`;
-    outcome.textContent = attempt.generation_error
+    outcome.className = `attempt-outcome${attempt.generation_error || attempt.error ? " is-failed" : ""}`;
+    outcome.textContent = attempt.error
+      ? "执行失败"
+      : attempt.kind === "generate"
+        ? "Direct generation"
+        : attempt.kind === "repair"
+          ? "Execution-guided repair"
+      : attempt.generation_error
       ? "生成失败"
       : selectedPrimaryCandidate
         ? `选中候选 ${candidateIndex(selectedPrimaryCandidate) ?? "—"}`
@@ -1207,6 +1659,25 @@ function renderAttempts(attempts = []) {
       generationError.className = "candidate-error";
       generationError.textContent = displayValue(attempt.generation_error);
       body.append(generationError);
+    }
+
+    if (attempt.kind && attempt.selected_rule) {
+      const directRule = document.createElement("pre");
+      directRule.className = "candidate-rule";
+      const code = document.createElement("code");
+      code.textContent = attempt.selected_rule;
+      directRule.append(code);
+      body.append(directRule);
+    }
+    if (attempt.kind === "repair" && attempt.feedback) {
+      const feedback = document.createElement("details");
+      feedback.className = "candidate-validation";
+      const summary = document.createElement("summary");
+      summary.textContent = "查看本轮 runtime feedback";
+      const output = document.createElement("pre");
+      output.textContent = JSON.stringify(attempt.feedback, null, 2);
+      feedback.append(summary, output);
+      body.append(feedback);
     }
 
     const diagnosisText = displayValue(attempt.diagnosis);
@@ -1266,7 +1737,7 @@ function renderAttempts(attempts = []) {
         renderCandidate(candidate, attempt.selected_candidate, candidateIndex),
       );
     });
-    if (!candidates.length && !attempt.generation_error) {
+    if (!candidates.length && !attempt.generation_error && !attempt.kind) {
       appendEmptyState(candidateList, "本次尝试没有可验证候选");
     }
     body.append(candidateList);
@@ -1356,10 +1827,13 @@ function renderRun(job) {
   elements.summaryExpected.textContent = joinSids(job.validation?.expected_sids);
   elements.summaryMatched.textContent = joinSids(job.validation?.positive_matched_sids);
   renderRules(job);
+  renderExplanation(job.explanation);
   renderValidation(job.validation);
   renderSampleMatrix(job);
   renderAttempts(job.attempts);
   renderEvents(job.events);
+  renderRuleIR(job.rule_ir);
+  renderPocExtraction(job.poc_extraction, job.input_mode);
   renderArtifacts(job.artifacts);
 
   elements.failureBanner.hidden = !job.failure;
@@ -1369,7 +1843,7 @@ function renderRun(job) {
   }
 
   const justFailed = appState.previousRunStatus !== "failed" && job.status === "failed";
-  if (justFailed && job.validation) switchResultTab("validation");
+  if (justFailed && job.explanation) switchResultTab("explanation");
   appState.previousRunStatus = job.status;
   updateRunButton();
 }
@@ -1382,7 +1856,8 @@ async function pollRun(jobId) {
       appState.pollTimer = window.setTimeout(() => pollRun(jobId), 900);
     } else {
       await loadRecentRuns(jobId);
-      showToast(job.status === "passed" ? "规则已通过验证" : "任务运行失败", job.status !== "passed");
+      await loadRuleOps();
+      showToast(job.status === "passed" ? "规则已通过验证" : "规则未通过验证", job.status !== "passed");
     }
   } catch (error) {
     updateRunButton();
@@ -1459,18 +1934,28 @@ function resetInputs() {
   elements.maxAttempts.value = "3";
   appState.rawFiles.request = null;
   appState.rawFiles.response = null;
+  appState.pythonPocFile = null;
   appState.negativeFiles = [];
   elements.requestSource.textContent = "文本输入 · 自动补全 CRLF";
   elements.responseSource.textContent = "文本输入 · 自动补全 CRLF";
+  elements.pythonPocSource.textContent = "文本输入 · 仅静态解析";
+  clearPocExtraction();
   updateByteCount("request");
   updateByteCount("response");
   renderNegativeFiles();
   switchInputTab("request");
+  switchEvidenceMode("http");
 }
 
 function bindEvents() {
+  document.querySelectorAll("[data-workspace]").forEach((button) => {
+    button.addEventListener("click", () => switchWorkspace(button.dataset.workspace));
+  });
   document.querySelectorAll("[data-input-tab]").forEach((button) => {
     button.addEventListener("click", () => switchInputTab(button.dataset.inputTab));
+  });
+  document.querySelectorAll("[data-evidence-mode]").forEach((button) => {
+    button.addEventListener("click", () => switchEvidenceMode(button.dataset.evidenceMode));
   });
   document.querySelectorAll("[data-result-tab]").forEach((button) => {
     button.addEventListener("click", () => switchResultTab(button.dataset.resultTab));
@@ -1484,6 +1969,18 @@ function bindEvents() {
   });
   elements.responseFile.addEventListener("change", (event) => {
     if (event.target.files[0]) importRawFile("response", event.target.files[0]);
+  });
+  elements.importPythonPoc.addEventListener("click", () => elements.pythonPocFile.click());
+  elements.pythonPocFile.addEventListener("change", (event) => {
+    if (event.target.files[0]) importPythonPoc(event.target.files[0]);
+  });
+  elements.extractPythonPoc.addEventListener("click", extractPythonHttp);
+  elements.pythonPoc.addEventListener("input", () => {
+    if (appState.pythonPocFile) {
+      appState.pythonPocFile = null;
+      elements.pythonPocSource.textContent = "文本输入 · 仅静态解析";
+    }
+    clearPocExtraction();
   });
   elements.httpRequest.addEventListener("input", () => markRawInputEdited("request"));
   elements.httpResponse.addEventListener("input", () => markRawInputEdited("response"));
@@ -1502,6 +1999,13 @@ function bindEvents() {
   elements.recentRuns.addEventListener("change", (event) => {
     if (event.target.value) loadRun(event.target.value);
   });
+  elements.ruleopsSearch.addEventListener("input", () => {
+    clearTimeout(appState.ruleopsSearchTimer);
+    appState.ruleopsSearchTimer = window.setTimeout(
+      () => loadRuleOps(elements.ruleopsSearch.value.trim()),
+      250,
+    );
+  });
 }
 
 async function initialize() {
@@ -1509,7 +2013,7 @@ async function initialize() {
   bindEvents();
   updateByteCount("request");
   updateByteCount("response");
-  await Promise.all([loadRuntime(), loadRecentRuns()]);
+  await Promise.all([loadRuntime(), loadRecentRuns(), loadRuleOps()]);
   const storedRun = window.sessionStorage.getItem("suricata-rule-lab-run");
   if (storedRun) await loadRun(storedRun);
 }

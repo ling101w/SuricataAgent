@@ -13,9 +13,20 @@
         <div class="brand-mark" aria-hidden="true">SR</div>
         <div>
           <h1>Suricata Rule Lab</h1>
-          <p>规则生成与流量验证</p>
+          <p>Execution-guided rule engineering</p>
         </div>
       </div>
+
+      <nav class="workspace-switch" aria-label="工作区">
+        <button class="workspace-switch-button is-active" type="button" data-workspace="generator">
+          <i data-lucide="flask-conical" data-fallback="G"></i>
+          生成验证
+        </button>
+        <button class="workspace-switch-button" type="button" data-workspace="ruleops">
+          <i data-lucide="network" data-fallback="R"></i>
+          RuleOps
+        </button>
+      </nav>
 
       <div class="header-actions">
         <label class="recent-runs" for="recentRuns">
@@ -46,7 +57,7 @@
       </div>
     </header>
 
-    <main class="workspace">
+    <main class="workspace" id="generatorWorkspace">
       <section class="input-pane" aria-labelledby="inputTitle">
         <div class="pane-heading">
           <div>
@@ -105,11 +116,31 @@
               rows="5"
               maxlength="100000"
               placeholder="利用步骤、关键参数与稳定检测特征"
-              required
             ></textarea>
           </label>
 
-          <div class="http-editor">
+          <div class="evidence-mode-switch" role="tablist" aria-label="流量证据输入方式">
+            <button
+              class="mode-switch-button is-active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              data-evidence-mode="http"
+            >
+              HTTP 原文
+            </button>
+            <button
+              class="mode-switch-button"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-evidence-mode="python_poc"
+            >
+              Python PoC
+            </button>
+          </div>
+
+          <div class="http-editor" id="httpEvidenceEditor">
             <div class="tab-bar" role="tablist" aria-label="HTTP 原文">
               <button
                 class="tab-button is-active"
@@ -188,6 +219,46 @@
             </div>
           </div>
 
+          <div class="python-poc-editor" id="pythonPocEditor" hidden>
+            <div class="editor-toolbar">
+              <span id="pythonPocSource">文本输入 · 仅静态解析</span>
+              <button class="quiet-button" id="importPythonPoc" type="button">
+                <i data-lucide="file-code" data-fallback="↑"></i>
+                导入 .py
+              </button>
+              <input id="pythonPocFile" type="file" accept=".py,text/x-python" hidden />
+            </div>
+            <textarea
+              class="raw-editor python-editor"
+              id="pythonPoc"
+              name="python_poc"
+              rows="15"
+              maxlength="1048576"
+              spellcheck="false"
+              placeholder="import requests&#10;requests.post(target + '/api/run', json={'cmd': payload})"
+            ></textarea>
+            <div class="extraction-toolbar">
+              <div>
+                <strong id="extractionStatus">尚未提取</strong>
+                <span id="extractionMeta">AST static analysis</span>
+              </div>
+              <button class="secondary-button" id="extractPythonPoc" type="button">
+                <i data-lucide="scan-search" data-fallback="↗"></i>
+                提取请求
+              </button>
+            </div>
+            <label class="field extracted-request-field">
+              <span>Raw HTTP 预览</span>
+              <textarea
+                class="raw-editor"
+                id="extractedHttpRequest"
+                rows="10"
+                spellcheck="false"
+                placeholder="静态提取后可在这里人工补全请求"
+              ></textarea>
+            </label>
+          </div>
+
           <details class="advanced-options">
             <summary>
               <span>验证选项</span>
@@ -254,27 +325,39 @@
         <ol class="progress-track" id="progressTrack" aria-label="任务进度">
           <li data-stage="preflight">
             <span class="step-index">01</span>
-            <span class="step-label">环境预检</span>
+            <span class="step-label">预检</span>
           </li>
-          <li data-stage="build_samples">
+          <li data-stage="prepare">
             <span class="step-index">02</span>
-            <span class="step-label">样本矩阵</span>
+            <span class="step-label">流量</span>
           </li>
-          <li data-stage="extract_features">
+          <li data-stage="generate">
             <span class="step-index">03</span>
-            <span class="step-label">特征提取</span>
+            <span class="step-label">Generate</span>
           </li>
-          <li data-stage="evaluate_candidates">
+          <li data-stage="execute">
             <span class="step-index">04</span>
-            <span class="step-label">候选评测</span>
+            <span class="step-label">Execute</span>
           </li>
-          <li data-stage="diagnose_failure">
+          <li data-stage="repair">
             <span class="step-index">05</span>
-            <span class="step-label">失败诊断</span>
+            <span class="step-label">Repair</span>
+          </li>
+          <li data-stage="verify">
+            <span class="step-index">06</span>
+            <span class="step-label">Verify</span>
+          </li>
+          <li data-stage="parse_ir">
+            <span class="step-index">07</span>
+            <span class="step-label">Rule IR</span>
+          </li>
+          <li data-stage="ruleops">
+            <span class="step-index">08</span>
+            <span class="step-label">RuleOps</span>
           </li>
           <li data-stage="persist">
-            <span class="step-index">06</span>
-            <span class="step-label">保存产物</span>
+            <span class="step-index">09</span>
+            <span class="step-label">归档</span>
           </li>
         </ol>
 
@@ -312,6 +395,15 @@
               type="button"
               role="tab"
               aria-selected="true"
+              data-result-tab="explanation"
+            >
+              结论
+            </button>
+            <button
+              class="result-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
               data-result-tab="rules"
             >
               规则
@@ -352,9 +444,47 @@
             >
               运行记录
             </button>
+            <button
+              class="result-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-result-tab="ir"
+            >
+              Rule IR
+            </button>
+            <button
+              class="result-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-result-tab="extraction"
+            >
+              PoC 提取
+            </button>
           </div>
 
-          <div class="result-panel is-active" id="rulesResult" data-result-panel="rules">
+          <div class="result-panel is-active" id="explanationResult" data-result-panel="explanation">
+            <div class="explanation-hero" id="explanationHero">
+              <div>
+                <span class="explanation-verdict" id="explanationVerdict">等待验证</span>
+                <h3 id="explanationHeadline">尚未形成交付结论</h3>
+                <p id="explanationSummary">完整 Verify 结束后，这里会给出可追溯的结果解释。</p>
+              </div>
+              <div class="explanation-score" id="explanationScore">—</div>
+            </div>
+            <div class="explanation-checks" id="explanationChecks"></div>
+            <div class="explanation-section" id="failedSamplesSection" hidden>
+              <div class="section-heading"><strong>失败样本</strong><span>阻止规则交付的证据</span></div>
+              <div class="failed-sample-list" id="failedSampleList"></div>
+            </div>
+            <div class="explanation-section">
+              <div class="section-heading"><strong>边界</strong><span>本次验证没有证明的内容</span></div>
+              <ul class="limitation-list" id="limitationList"></ul>
+            </div>
+          </div>
+
+          <div class="result-panel" id="rulesResult" data-result-panel="rules" hidden>
             <div class="panel-toolbar">
               <span id="ruleMeta">候选规则</span>
               <div>
@@ -406,6 +536,17 @@
             <div class="event-list" id="eventList"></div>
           </div>
 
+          <div class="result-panel" id="irResult" data-result-panel="ir" hidden>
+            <div class="ir-overview" id="irOverview"></div>
+            <pre class="rule-output ir-output" id="irOutput"><code>Verify 后解析 Final Rule…</code></pre>
+          </div>
+
+          <div class="result-panel" id="extractionResult" data-result-panel="extraction" hidden>
+            <div class="extraction-result-overview" id="extractionResultOverview"></div>
+            <div class="extraction-candidate-list" id="extractionCandidateList"></div>
+            <pre class="rule-output extraction-output" id="extractionOutput"><code>HTTP 输入不需要 PoC 提取…</code></pre>
+          </div>
+
           <div class="artifact-bar" id="artifactBar" hidden>
             <div>
               <span class="artifact-label">产物</span>
@@ -421,6 +562,31 @@
         </div>
       </section>
     </main>
+
+    <section class="ruleops-workspace" id="ruleopsWorkspace" hidden aria-labelledby="ruleopsTitle">
+      <div class="ruleops-header">
+        <div>
+          <p class="eyebrow">RULEOPS</p>
+          <h2 id="ruleopsTitle">规则知识库</h2>
+        </div>
+        <label class="ruleops-search">
+          <i data-lucide="search" data-fallback="?"></i>
+          <input id="ruleopsSearch" type="search" placeholder="搜索 CVE、SID、endpoint 或证据" />
+        </label>
+      </div>
+      <div class="ruleops-stats" id="ruleopsStats"></div>
+      <div class="ruleops-layout">
+        <section class="ruleops-list-pane" aria-labelledby="ruleListTitle">
+          <div class="section-heading"><strong id="ruleListTitle">Verified Rules</strong><span id="ruleListCount">0 条</span></div>
+          <div class="ruleops-rule-list" id="ruleopsRuleList"></div>
+        </section>
+        <section class="ruleops-detail-pane" aria-labelledby="coverageTitle">
+          <div class="section-heading"><strong id="coverageTitle">Coverage Graph</strong><span>同一 case 联合回放</span></div>
+          <div class="coverage-graph-view" id="coverageGraphView"></div>
+          <div class="duplicate-groups" id="duplicateGroups"></div>
+        </section>
+      </div>
+    </section>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

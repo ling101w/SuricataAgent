@@ -15,12 +15,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from main import WorkflowConfig, build_workflow
+from direct_workflow import PIPELINE_VERSION, WorkflowConfig, build_workflow
+from poc_http_extractor import PocHttpExtractionError, extract_http_request
+from ruleops import RuleOpsStore
 from validate_rules import check_suricata_runtime
 
 
@@ -31,6 +33,7 @@ ARTIFACT_ROOT = Path(
 ).resolve()
 
 MAX_HTTP_BYTES = 4 * 1024 * 1024
+MAX_PYTHON_POC_BYTES = 1024 * 1024
 MAX_NEGATIVE_PCAP_BYTES = 16 * 1024 * 1024
 MAX_NEGATIVE_PCAPS = 4
 MAX_RECENT_RUNS = 20
@@ -38,27 +41,36 @@ MAX_PENDING_RUNS = 8
 
 STAGE_ORDER = (
     "preflight",
-    "build_samples",
-    "extract_features",
-    "evaluate_candidates",
-    "diagnose_failure",
+    "prepare",
+    "generate",
+    "execute",
+    "repair",
+    "verify",
+    "parse_ir",
+    "ruleops",
     "persist",
 )
 STAGE_LABELS = {
     "preflight": "环境预检",
-    "build_samples": "构造样本矩阵",
-    "extract_features": "提取检测特征",
-    "evaluate_candidates": "编译并验证候选",
-    "diagnose_failure": "确定性诊断",
+    "prepare": "准备流量矩阵",
+    "generate": "直接生成规则",
+    "execute": "执行 Repair 样本",
+    "repair": "运行时反馈修复",
+    "verify": "完整矩阵验证",
+    "parse_ir": "后置解析 Rule IR",
+    "ruleops": "写入 RuleOps",
     "persist": "保存产物",
     "done": "完成",
 }
 NEXT_STAGE = {
-    "preflight": "build_samples",
-    "build_samples": "extract_features",
-    "extract_features": "evaluate_candidates",
-    "evaluate_candidates": "persist",
-    "diagnose_failure": "extract_features",
+    "preflight": "prepare",
+    "prepare": "generate",
+    "generate": "execute",
+    "execute": "repair",
+    "repair": "execute",
+    "verify": "parse_ir",
+    "parse_ir": "ruleops",
+    "ruleops": "persist",
     "persist": "done",
 }
 SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -91,16 +103,24 @@ class RunRequest(BaseModel):
 
     case_id: str = Field(default="case", min_length=1, max_length=80)
     base: str = Field(min_length=1, max_length=30_000)
-    poc: str = Field(min_length=1, max_length=100_000)
-    http_request: EncodedInput
+    poc: str = Field(default="", max_length=100_000)
+    input_mode: Literal["http", "python_poc"] = "http"
+    http_request: EncodedInput = Field(
+        default_factory=lambda: EncodedInput(content="")
+    )
     http_response: EncodedInput = Field(
         default_factory=lambda: EncodedInput(content="")
     )
+    python_poc: EncodedInput | None = None
     negative_pcaps: list[NegativePcapInput] = Field(
         default_factory=list,
         max_length=MAX_NEGATIVE_PCAPS,
     )
     options: RunOptions = Field(default_factory=RunOptions)
+
+
+class PocExtractionRequest(BaseModel):
+    python_poc: EncodedInput
 
 
 app = FastAPI(
@@ -151,6 +171,17 @@ def _decode_http(value: EncodedInput, field_name: str) -> str | bytes:
     return decoded
 
 
+def _decode_python_poc(value: EncodedInput) -> tuple[str | bytes, str]:
+    source = _decode_http(value, "Python PoC")
+    size = len(source) if isinstance(source, bytes) else len(source.encode("utf-8"))
+    if size > MAX_PYTHON_POC_BYTES:
+        raise HTTPException(status_code=413, detail="Python PoC 超过 1 MiB 限制")
+    filename = _safe_filename(value.filename or "poc.py", "poc.py")
+    if not filename.casefold().endswith(".py"):
+        filename += ".py"
+    return source, filename
+
+
 def _decode_negative_pcaps(
     values: list[NegativePcapInput],
 ) -> list[tuple[str, bytes]]:
@@ -189,12 +220,18 @@ def _new_progress() -> list[dict[str, Any]]:
     ]
 
 
-def _create_job(case_id: str, options: RunOptions) -> dict[str, Any]:
+def _create_job(
+    case_id: str,
+    options: RunOptions,
+    *,
+    input_mode: Literal["http", "python_poc"] = "http",
+) -> dict[str, Any]:
     job_id = uuid.uuid4().hex
     timestamp = _now()
     job = {
         "job_id": job_id,
         "case_id": case_id,
+        "input_mode": input_mode,
         "status": "queued",
         "stage": "preflight",
         "attempt": 0,
@@ -211,6 +248,10 @@ def _create_job(case_id: str, options: RunOptions) -> dict[str, Any]:
         "mutation_skips": [],
         "final_judgment": None,
         "rule_ir": None,
+        "explanation": None,
+        "ruleops": None,
+        "poc_extraction": None,
+        "pipeline": PIPELINE_VERSION,
         "attempts": [],
         "progress": _new_progress(),
         "events": [],
@@ -251,20 +292,31 @@ def _record_node(job_id: str, node: str, state: dict[str, Any]) -> None:
         item = _progress_item(job, node)
         item["runs"] += 1
 
-        failed_here = current_status == "failed" and node != "persist"
-        if node == "persist" and state.get("failure_code") == "ARTIFACT_WRITE_ERROR":
-            failed_here = True
-        if node == "extract_features" and current_status == "running" and not state.get(
-            "detection_plan"
-        ):
+        terminal_failure_nodes = {"preflight", "prepare", "generate", "execute", "repair"}
+        failed_here = current_status == "failed" and node in terminal_failure_nodes
+        if node == "execute" and current_status == "running":
+            validation = state.get("execute_validation") or {}
+            if validation.get("passed"):
+                next_stage = "verify"
+            elif state.get("attempt", 0) < job["max_attempts"]:
+                next_stage = "repair"
+            else:
+                next_stage = "verify"
+        else:
+            next_stage = "persist" if failed_here else NEXT_STAGE.get(node, "done")
+
+        if node == "repair" and not failed_here:
             item["status"] = "retrying"
-            next_stage = "extract_features"
-        elif node == "evaluate_candidates" and current_status == "running":
-            item["status"] = "done"
-            next_stage = "diagnose_failure"
+        elif node == "verify" and current_status == "failed":
+            item["status"] = "failed"
+        elif node == "parse_ir" and state.get("rule_ir_error"):
+            item["status"] = "failed"
+        elif node == "ruleops" and current_status == "passed" and not (
+            state.get("ruleops") or {}
+        ).get("indexed", False):
+            item["status"] = "failed"
         else:
             item["status"] = "failed" if failed_here else "done"
-            next_stage = "persist" if failed_here else NEXT_STAGE.get(node, "done")
 
         if next_stage in STAGE_ORDER:
             _progress_item(job, next_stage)["status"] = "running"
@@ -277,8 +329,8 @@ def _record_node(job_id: str, node: str, state: dict[str, Any]) -> None:
             job["rules"] = state["rules"]
         if state.get("validation_result"):
             job["validation"] = _validation_summary(state["validation_result"])
-        elif node == "extract_features":
-            job["validation"] = None
+        elif state.get("execute_validation"):
+            job["validation"] = _validation_summary(state["execute_validation"])
         job["selected_candidate"] = state.get(
             "selected_candidate", job["selected_candidate"]
         )
@@ -292,6 +344,12 @@ def _record_node(job_id: str, node: str, state: dict[str, Any]) -> None:
             job["final_judgment"] = dict(state["final_judgment"])
         if state.get("selected_rule_ir") is not None:
             job["rule_ir"] = dict(state["selected_rule_ir"])
+        if state.get("explanation") is not None:
+            job["explanation"] = dict(state["explanation"])
+        if state.get("ruleops") is not None:
+            job["ruleops"] = dict(state["ruleops"])
+        if state.get("poc_extraction") is not None:
+            job["poc_extraction"] = dict(state["poc_extraction"])
         if state.get("attempts"):
             job["attempts"] = _attempt_summaries(state["attempts"])
         job["events"].append(
@@ -354,6 +412,32 @@ def _attempt_summaries(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     previous_rule: str | None = None
     for value in values:
+        if value.get("kind") in {"generate", "repair"}:
+            selected_rule = value.get("rule")
+            summaries.append(
+                {
+                    "attempt": value.get("attempt"),
+                    "kind": value.get("kind"),
+                    "generation_ms": value.get("model_ms", 0),
+                    "compilation_ms": 0,
+                    "validation_ms": value.get("execution_ms", 0),
+                    "selected_candidate": None,
+                    "selected_rule": selected_rule,
+                    "rule_diff": value.get("rule_diff")
+                    or _rule_diff(previous_rule, selected_rule),
+                    "validation": (
+                        _validation_summary(value["validation"])
+                        if isinstance(value.get("validation"), dict)
+                        else None
+                    ),
+                    "feedback": value.get("feedback"),
+                    "error": value.get("error"),
+                    "candidates": [],
+                }
+            )
+            if isinstance(selected_rule, str) and selected_rule:
+                previous_rule = selected_rule
+            continue
         candidates: list[dict[str, Any]] = []
         for candidate in value.get("candidates", []):
             candidates.append(
@@ -441,6 +525,12 @@ def _collect_artifacts(job: dict[str, Any]) -> None:
         "supplemental_rules": output_dir / "supplemental.rules",
         "supplemental_rule_ir": output_dir / "supplemental.rule-ir.json",
         "final_judgment": output_dir / "final-judgment.json",
+        "coverage_graph": output_dir / "coverage-graph.json",
+        "python_poc": output_dir / "poc-source.py",
+        "poc_extraction": output_dir / "poc-extraction.json",
+        "extracted_request": output_dir / "selected-request.raw",
+        "http_candidates": output_dir / "http-candidates.json",
+        "extraction_report": output_dir / "extraction-report.json",
     }
     if not candidates["rules"].is_file():
         candidates["rules"] = output_dir / "failed-candidate.rules"
@@ -490,6 +580,12 @@ def _finish_job(job_id: str, state: dict[str, Any]) -> None:
             job["final_judgment"] = dict(state["final_judgment"])
         if state.get("selected_rule_ir") is not None:
             job["rule_ir"] = dict(state["selected_rule_ir"])
+        if state.get("explanation") is not None:
+            job["explanation"] = dict(state["explanation"])
+        if state.get("ruleops") is not None:
+            job["ruleops"] = dict(state["ruleops"])
+        if state.get("poc_extraction") is not None:
+            job["poc_extraction"] = dict(state["poc_extraction"])
         if state.get("attempts"):
             job["attempts"] = _attempt_summaries(state["attempts"])
         _collect_artifacts(job)
@@ -537,6 +633,8 @@ def _run_generation_job(
     payload: RunRequest,
     request_data: str | bytes,
     response_data: str | bytes,
+    python_poc_data: str | bytes,
+    python_poc_filename: str,
     negative_pcaps: list[tuple[str, bytes]],
 ) -> None:
     _mark_job_started(job_id)
@@ -548,15 +646,18 @@ def _run_generation_job(
         config = WorkflowConfig(
             sid_start=payload.options.sid_start,
             max_rule_attempts=payload.options.max_attempts,
-            strategy_catalog=os.getenv("DETECTION_STRATEGY_CATALOG"),
+            ruleops_path=str(ARTIFACT_ROOT / "rule-kb.json"),
         )
         graph = build_workflow(config=config)
         state: dict[str, Any] = {
             "case_id": payload.case_id,
             "base": payload.base,
             "poc": payload.poc,
+            "input_mode": payload.input_mode,
             "http_request": request_data,
             "http_response": response_data,
+            "python_poc": python_poc_data,
+            "python_poc_filename": python_poc_filename,
             "output_dir": str(output_dir),
             "negative_pcap_paths": negative_paths,
             "attempt": 0,
@@ -590,6 +691,8 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": job["job_id"],
         "case_id": job["case_id"],
+        "input_mode": job["input_mode"],
+        "pipeline": job["pipeline"],
         "status": job["status"],
         "stage": job["stage"],
         "stage_label": STAGE_LABELS.get(job["stage"], job["stage"]),
@@ -613,6 +716,9 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
         "mutation_skips": [dict(item) for item in job["mutation_skips"]],
         "final_judgment": job["final_judgment"],
         "rule_ir": job["rule_ir"],
+        "explanation": job["explanation"],
+        "ruleops": job["ruleops"],
+        "poc_extraction": job["poc_extraction"],
         "attempts": [dict(item) for item in job["attempts"]],
         "progress": [dict(item) for item in job["progress"]],
         "events": [dict(item) for item in job["events"][-30:]],
@@ -635,6 +741,7 @@ def runtime_status(response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     runtime = check_suricata_runtime()
     return {
+        "pipeline": PIPELINE_VERSION,
         "suricata": {
             "ok": runtime["ok"],
             "error_code": runtime["error_code"],
@@ -646,6 +753,7 @@ def runtime_status(response: Response) -> dict[str, Any]:
         },
         "limits": {
             "http_bytes": MAX_HTTP_BYTES,
+            "python_poc_bytes": MAX_PYTHON_POC_BYTES,
             "negative_pcap_bytes": MAX_NEGATIVE_PCAP_BYTES,
             "negative_pcap_count": MAX_NEGATIVE_PCAPS,
         },
@@ -656,13 +764,18 @@ def runtime_status(response: Response) -> dict[str, Any]:
 def create_run(payload: RunRequest) -> dict[str, Any]:
     if not payload.base.strip():
         raise HTTPException(status_code=422, detail="漏洞信息不能为空")
-    if not payload.poc.strip():
-        raise HTTPException(status_code=422, detail="PoC 信息不能为空")
-
     request_data = _decode_http(payload.http_request, "HTTP 请求")
-    if not request_data:
-        raise HTTPException(status_code=422, detail="HTTP 请求不能为空")
     response_data = _decode_http(payload.http_response, "HTTP 响应")
+    python_poc_data: str | bytes = ""
+    python_poc_filename = "poc.py"
+    if payload.python_poc is not None:
+        python_poc_data, python_poc_filename = _decode_python_poc(payload.python_poc)
+    if payload.input_mode == "http" and not request_data:
+        raise HTTPException(status_code=422, detail="HTTP 请求不能为空")
+    if payload.input_mode == "python_poc" and not python_poc_data:
+        raise HTTPException(status_code=422, detail="Python PoC 不能为空")
+    if not payload.poc.strip() and not python_poc_data:
+        raise HTTPException(status_code=422, detail="PoC 信息不能为空")
     negative_pcaps = _decode_negative_pcaps(payload.negative_pcaps)
 
     # 检查队列和插入任务必须位于同一锁区间，避免并发请求同时越过上限。
@@ -672,13 +785,19 @@ def create_run(payload: RunRequest) -> dict[str, Any]:
         )
         if pending_count >= MAX_PENDING_RUNS:
             raise HTTPException(status_code=429, detail="当前排队任务过多，请稍后再试")
-        job = _create_job(payload.case_id.strip() or "case", payload.options)
+        job = _create_job(
+            payload.case_id.strip() or "case",
+            payload.options,
+            input_mode=payload.input_mode,
+        )
     _executor.submit(
         _run_generation_job,
         job["job_id"],
         payload,
         request_data,
         response_data,
+        python_poc_data,
+        python_poc_filename,
         negative_pcaps,
     )
     return {
@@ -686,6 +805,21 @@ def create_run(payload: RunRequest) -> dict[str, Any]:
         "status": "queued",
         "status_url": f"/api/runs/{job['job_id']}",
     }
+
+
+@app.post("/api/poc/extract")
+def extract_poc_http(payload: PocExtractionRequest, response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    source, filename = _decode_python_poc(payload.python_poc)
+    if not source:
+        raise HTTPException(status_code=422, detail="Python PoC 不能为空")
+    try:
+        return extract_http_request(source, filename=filename).public_dict()
+    except PocHttpExtractionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
 
 @app.get("/api/runs")
@@ -707,6 +841,24 @@ def get_run(job_id: str, response: Response) -> dict[str, Any]:
         return _public_job(_get_job(job_id))
 
 
+@app.get("/api/ruleops")
+def ruleops_overview(
+    response: Response,
+    q: str | None = Query(default=None, max_length=160),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return RuleOpsStore(ARTIFACT_ROOT / "rule-kb.json").overview(q)
+
+
+@app.get("/api/ruleops/rules/{record_id}")
+def ruleops_record(record_id: str, response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    record = RuleOpsStore(ARTIFACT_ROOT / "rule-kb.json").get_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Rule KB record 不存在")
+    return record
+
+
 @app.get("/api/runs/{job_id}/artifacts/{kind}")
 def download_artifact(
     job_id: str,
@@ -719,6 +871,7 @@ def download_artifact(
         "rule_ir",
         "supplemental_rule_ir",
         "final_judgment",
+        "coverage_graph",
     ],
 ):
     with _jobs_lock:
@@ -735,6 +888,7 @@ def download_artifact(
         "rule_ir": "application/json",
         "supplemental_rule_ir": "application/json",
         "final_judgment": "application/json",
+        "coverage_graph": "application/json",
     }
     return FileResponse(
         path,
