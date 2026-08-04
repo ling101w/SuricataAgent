@@ -1495,7 +1495,7 @@ a:focus-visible {
 }
 
 .matrix-overview {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-top: 0;
 }
 
@@ -1674,8 +1674,8 @@ a:focus-visible {
 
 .matrix-row {
   display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(210px, 1.5fr) minmax(68px, 0.38fr) minmax(110px, 0.72fr) 54px;
+  min-width: 650px;
+  grid-template-columns: minmax(210px, 1.5fr) minmax(68px, 0.38fr) minmax(100px, 0.58fr) minmax(110px, 0.72fr) 54px;
   align-items: center;
   gap: 12px;
   padding: 11px 10px;
@@ -1812,6 +1812,34 @@ a:focus-visible {
 .mutation-skips code,
 .mutation-skips span {
   overflow-wrap: anywhere;
+}
+
+.sample-tcp {
+  min-width: 0;
+}
+
+.sample-tcp strong,
+.sample-tcp span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sample-tcp strong {
+  color: var(--ink-soft);
+  font-family: Consolas, "SFMono-Regular", "Microsoft YaHei", monospace;
+  font-size: 12px;
+}
+
+.sample-tcp span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.sample-tcp.is-error strong {
+  color: #873728;
 }
 
 .attempt-list {
@@ -2588,7 +2616,7 @@ a:focus-visible {
   }
 
   .matrix-overview {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .matrix-row--header {
@@ -2596,7 +2624,8 @@ a:focus-visible {
   }
 
   .matrix-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    min-width: 0;
+    grid-template-columns: minmax(58px, 0.55fr) minmax(76px, 0.85fr) minmax(0, 1fr) 48px;
     gap: 8px 10px;
   }
 

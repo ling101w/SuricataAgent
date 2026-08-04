@@ -246,6 +246,7 @@ def _create_job(
         "validation": None,
         "selected_candidate": None,
         "sample_matrix": [],
+        "pcap_analysis": None,
         "mutation_skips": [],
         "final_judgment": None,
         "rule_ir": None,
@@ -338,6 +339,8 @@ def _record_node(job_id: str, node: str, state: dict[str, Any]) -> None:
         )
         if state.get("sample_matrix"):
             job["sample_matrix"] = [dict(item) for item in state["sample_matrix"]]
+        if state.get("pcap_analysis") is not None:
+            job["pcap_analysis"] = dict(state["pcap_analysis"])
         if "mutation_skips" in state:
             job["mutation_skips"] = [
                 dict(item) for item in state.get("mutation_skips", [])
@@ -522,6 +525,7 @@ def _collect_artifacts(job: dict[str, Any]) -> None:
         "pcap": output_dir / "traffic.pcap",
         "rules": output_dir / "generated.rules",
         "report": output_dir / "validation-report.json",
+        "pcap_analysis": output_dir / "pcap-analysis.json",
         "mutations": output_dir / "traffic-mutations.json",
         "rule_ir": output_dir / "generated.rule-ir.json",
         "supplemental_rules": output_dir / "supplemental.rules",
@@ -574,6 +578,8 @@ def _finish_job(job_id: str, state: dict[str, Any]) -> None:
         )
         if state.get("sample_matrix"):
             job["sample_matrix"] = [dict(item) for item in state["sample_matrix"]]
+        if state.get("pcap_analysis") is not None:
+            job["pcap_analysis"] = dict(state["pcap_analysis"])
         if "mutation_skips" in state:
             job["mutation_skips"] = [
                 dict(item) for item in state.get("mutation_skips", [])
@@ -716,6 +722,7 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
         "selected_candidate": job["selected_candidate"],
         "validation": job["validation"],
         "sample_matrix": [dict(item) for item in job["sample_matrix"]],
+        "pcap_analysis": job.get("pcap_analysis"),
         "mutation_skips": [dict(item) for item in job["mutation_skips"]],
         "final_judgment": job["final_judgment"],
         "rule_ir": job["rule_ir"],
@@ -885,6 +892,7 @@ def download_artifact(
         "rules",
         "supplemental_rules",
         "report",
+        "pcap_analysis",
         "mutations",
         "rule_ir",
         "supplemental_rule_ir",
@@ -907,6 +915,7 @@ def download_artifact(
         "rules": "text/plain; charset=utf-8",
         "supplemental_rules": "text/plain; charset=utf-8",
         "report": "application/json",
+        "pcap_analysis": "application/json",
         "mutations": "application/json",
         "rule_ir": "application/json",
         "supplemental_rule_ir": "application/json",

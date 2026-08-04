@@ -511,7 +511,8 @@ python web_app.py
 默认访问 `http://127.0.0.1:8000`。需要修改监听地址或端口时设置 `WEB_HOST` 和
 `WEB_PORT`。Web 支持文本或 Base64 原始 HTTP 输入、最多 4 个用户负样本、后台任务、
 repair/verify split、逐样本矩阵、规则 diff、可追溯结果解释、post-hoc IR，以及 PCAP、
-规则、Coverage Graph 和报告下载。RuleOps 工作区提供 KB 搜索、文本/逻辑去重记录、
+规则、PCAP TCP 分析、Coverage Graph 和报告下载。样本矩阵会显示每个 PCAP 的 TCP
+连接数及握手、FIN、RST 摘要。RuleOps 工作区提供 KB 搜索、文本/逻辑去重记录、
 证据指纹分组和 same-case joint replay Coverage Graph。
 
 Web 默认只监听本机。PoC 和 HTTP 证据会发送到 `LLM_BASE_URL` 指向的模型服务，
@@ -528,6 +529,7 @@ artifacts/
     ├── traffic.pcap               # 原始正向样本的兼容入口
     ├── samples/                   # 每个正向变体和近似负样本的独立 PCAP
     ├── traffic-matrix.json        # 样本标签、原因与 repair/verify split
+    ├── pcap-analysis.json         # 每个 PCAP 的 TCP 连接、握手与关闭统计
     ├── traffic-mutations.json     # 未执行 mutation 的结构化原因
     ├── generated.rules            # 通过最终 Verify 的规则
     ├── failed-candidate.rules     # 未达到交付门槛的最后规则
@@ -552,6 +554,11 @@ artifacts/
 Execute 结果；
 Verify-only 样本不会出现在这些 feedback 文件中。`validation-report.json` 固化 pipeline
 ID 与 generate/repair prompt SHA-256，后一轮状态不会覆盖前一轮证据。
+
+`pcap-analysis.json` 的 `summary.tcp_connections` 是本次所有样本 PCAP 的 TCP 连接总数；
+`pcaps[].summary.tcp_streams` 是对应样本的连接数，`streams` 则保留端点、包数、载荷、
+三次握手、双向 FIN 和 RST 明细。相同四元组出现新的 SYN 会开始新连接，SYN 重传不会
+重复计数；缺少 SYN 的中途抓包仍计为一个不完整连接。
 
 ## 测试
 

@@ -22,6 +22,7 @@ from langgraph.graph import END, START, StateGraph
 
 from generate_pcap import PcapConfig
 from generate_tools import create_chat_model
+from pcap_tcp_analysis import analyze_sample_pcaps, matrix_tcp_summary
 from poc_http_extractor import PocHttpExtractionError, extract_http_request
 from repair_constraints import RepairConstraints, accept_repair, compare_repair
 from rule_ir import parse_suricata_rule, rule_ir_to_dict
@@ -115,6 +116,7 @@ class DirectState(TypedDict, total=False):
     repair_samples: list[TrafficSample]
     heldout_samples: list[TrafficSample]
     sample_matrix: list[dict[str, object]]
+    pcap_analysis: dict[str, Any]
     mutation_skips: list[dict[str, str]]
     pcap_path: str
     rules: str
@@ -550,10 +552,19 @@ def build_workflow(
             compatibility.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(original.pcap_path, compatibility)
             repair_ids = {id(item) for item in repair}
-            matrix = [
-                _sample_summary(item, "repair" if id(item) in repair_ids else "verify_only")
-                for item in samples
-            ]
+            pcap_analysis = analyze_sample_pcaps(samples)
+            tcp_by_sample = {
+                item["sample_name"]: matrix_tcp_summary(item)
+                for item in pcap_analysis["pcaps"]
+            }
+            matrix = []
+            for item in samples:
+                summary = _sample_summary(
+                    item,
+                    "repair" if id(item) in repair_ids else "verify_only",
+                )
+                summary["tcp"] = tcp_by_sample[item.name]
+                matrix.append(summary)
             return {
                 "traffic_samples": list(samples),
                 "http_request": request_data,
@@ -561,6 +572,7 @@ def build_workflow(
                 "repair_samples": repair,
                 "heldout_samples": heldout,
                 "sample_matrix": matrix,
+                "pcap_analysis": pcap_analysis,
                 "mutation_skips": [
                     item.public_dict()
                     for item in getattr(samples, "mutation_skips", ())
@@ -887,6 +899,23 @@ def build_workflow(
                 _atomic_text(rules_path, state["rules"].rstrip() + "\n")
             _write_json(output / "traffic-matrix.json", state.get("sample_matrix", []))
             _write_json(
+                output / "pcap-analysis.json",
+                state.get(
+                    "pcap_analysis",
+                    {
+                        "version": 1,
+                        "summary": {
+                            "pcap_count": 0,
+                            "analyzed_pcaps": 0,
+                            "failed_pcaps": 0,
+                            "tcp_connections": 0,
+                            "multi_connection_pcaps": 0,
+                        },
+                        "pcaps": [],
+                    },
+                ),
+            )
+            _write_json(
                 output / "traffic-mutations.json",
                 {
                     "skip_count": len(state.get("mutation_skips", [])),
@@ -914,6 +943,7 @@ def build_workflow(
                 "failure_code": state.get("failure_code"),
                 "failure_message": state.get("failure_message"),
                 "validation": state.get("validation_result"),
+                "pcap_analysis": state.get("pcap_analysis"),
                 "explanation": state.get("explanation"),
                 "rule_ir": state.get("selected_rule_ir"),
                 "rule_ir_error": state.get("rule_ir_error"),

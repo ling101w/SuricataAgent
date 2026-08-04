@@ -129,6 +129,7 @@ const artifactLabels = {
   rules: "规则",
   supplemental_rules: "补充规则",
   report: "报告",
+  pcap_analysis: "PCAP TCP 分析",
   mutations: "变体诊断",
   rule_ir: "Rule IR",
   supplemental_rule_ir: "补充 Rule IR",
@@ -866,6 +867,7 @@ function initialRunView(maxAttempts) {
     rules: null,
     validation: null,
     sample_matrix: [],
+    pcap_analysis: null,
     mutation_skips: [],
     final_judgment: null,
     rule_ir: null,
@@ -1183,6 +1185,7 @@ function mergeSampleResults(job) {
 function renderSampleMatrix(job) {
   const samples = mergeSampleResults(job);
   const validation = job.validation || {};
+  const pcapSummary = job.pcap_analysis?.summary || {};
   const falsePositiveCount = finiteNumber(validation.false_positive_count);
   const positiveCount = samples.filter((item) => item.expected === "alert").length;
   const negativeCount = samples.filter((item) => item.expected === "no_alert").length;
@@ -1209,6 +1212,28 @@ function renderSampleMatrix(job) {
     "误报",
     falsePositiveCount === null ? "—" : String(falsePositiveCount),
     falsePositiveCount === null ? "" : falsePositiveCount === 0 ? "is-good" : "is-warning",
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "PCAP 数量",
+    String(pcapSummary.pcap_count ?? samples.length),
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "TCP 连接",
+    String(pcapSummary.tcp_connections ?? 0),
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "多连接 PCAP",
+    String(pcapSummary.multi_connection_pcaps ?? 0),
+    Number(pcapSummary.multi_connection_pcaps || 0) > 0 ? "is-warning" : "",
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "分析失败",
+    String(pcapSummary.failed_pcaps ?? 0),
+    Number(pcapSummary.failed_pcaps || 0) > 0 ? "is-warning" : "is-good",
   );
 
   const mutationSkips = Array.isArray(job.mutation_skips) ? job.mutation_skips : [];
@@ -1239,7 +1264,7 @@ function renderSampleMatrix(job) {
 
   const header = document.createElement("div");
   header.className = "matrix-row matrix-row--header";
-  ["样本", "预期", "实际", "结果"].forEach((label) => {
+  ["样本", "预期", "TCP 连接", "实际", "结果"].forEach((label) => {
     const cell = document.createElement("span");
     cell.textContent = label;
     header.append(cell);
@@ -1287,6 +1312,25 @@ function renderSampleMatrix(job) {
     }`;
     expected.textContent = expectedLabel(sample.expected);
 
+    const tcp = document.createElement("div");
+    tcp.className = `sample-tcp${sample.tcp?.analysis_ok === false ? " is-error" : ""}`;
+    const connectionCount = sample.tcp?.connection_count;
+    const tcpCount = document.createElement("strong");
+    tcpCount.textContent =
+      Number.isFinite(Number(connectionCount)) && connectionCount !== null
+        ? `${connectionCount} 个`
+        : "分析失败";
+    const tcpDetail = document.createElement("span");
+    if (connectionCount === null || connectionCount === undefined) {
+      tcpDetail.textContent = sample.tcp?.error || "暂无统计";
+      tcp.title = tcpDetail.textContent;
+    } else {
+      tcpDetail.textContent = `握手 ${sample.tcp.complete_handshakes || 0} · FIN ${
+        sample.tcp.bidirectional_fin_streams || 0
+      } · RST ${sample.tcp.reset_streams || 0}`;
+    }
+    tcp.append(tcpCount, tcpDetail);
+
     const actual = document.createElement("span");
     actual.className = "sample-actual";
     const matchedSids = Array.isArray(sample.matched_sids) ? sample.matched_sids : [];
@@ -1307,7 +1351,7 @@ function renderSampleMatrix(job) {
     passed.textContent =
       sample.passed === true ? "通过" : sample.passed === false ? "失败" : "等待";
 
-    row.append(identity, expected, actual, passed);
+    row.append(identity, expected, tcp, actual, passed);
     elements.sampleMatrix.append(row);
   });
 }
