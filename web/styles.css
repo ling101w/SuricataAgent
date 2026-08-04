@@ -1442,6 +1442,265 @@ a:focus-visible {
   margin-top: 24px;
 }
 
+.pcap-workspace {
+  height: calc(100dvh - 68px);
+  max-width: 1480px;
+  margin: 0 auto;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.pcap-workspace-header {
+  display: flex;
+  min-height: 78px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pcap-workspace-header h2,
+.pcap-workspace-header p {
+  margin: 0;
+}
+
+.pcap-workspace-header h2 {
+  margin-top: 3px;
+  font-size: 19px;
+}
+
+.pcap-analysis-status {
+  color: var(--muted);
+  font-family: Consolas, "SFMono-Regular", "Microsoft YaHei", monospace;
+  font-size: 11px;
+}
+
+.pcap-analyzer-layout {
+  display: grid;
+  min-height: calc(100dvh - 146px);
+  grid-template-columns: minmax(320px, 0.66fr) minmax(560px, 1.34fr);
+}
+
+.pcap-upload-pane,
+.pcap-result-pane {
+  min-width: 0;
+  padding: 24px 28px 36px;
+}
+
+.pcap-upload-pane {
+  border-right: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.pcap-dropzone {
+  display: flex;
+  min-height: 260px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 28px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  text-align: center;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.pcap-dropzone.is-dragging,
+.pcap-dropzone.has-file {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.pcap-file-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 5px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--teal-dark);
+}
+
+.pcap-file-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.pcap-dropzone > strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pcap-dropzone > span {
+  color: var(--muted);
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 10px;
+}
+
+.pcap-dropzone .secondary-button {
+  margin-top: 14px;
+}
+
+.pcap-upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.pcap-upload-actions .primary-button {
+  min-width: 170px;
+}
+
+.pcap-result-empty {
+  display: grid;
+  min-height: 360px;
+  margin-top: 12px;
+  place-items: center;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pcap-connection-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 18px 4px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.pcap-connection-total span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pcap-connection-total strong {
+  color: var(--teal-dark);
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.pcap-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--line);
+}
+
+.pcap-stream-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 26px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.pcap-stream-heading span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pcap-stream-list {
+  margin-top: 10px;
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+}
+
+.pcap-stream-row {
+  display: grid;
+  min-width: 680px;
+  grid-template-columns: 44px minmax(220px, 1.5fr) 54px 72px 72px minmax(110px, 0.7fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.pcap-stream-row--header {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  background: #edf0ee;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.pcap-stream-row > code {
+  color: var(--teal-dark);
+  font-size: 10px;
+}
+
+.pcap-stream-endpoints {
+  min-width: 0;
+}
+
+.pcap-stream-endpoints strong,
+.pcap-stream-endpoints span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pcap-stream-endpoints span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 9px;
+}
+
+.pcap-stream-state {
+  width: fit-content;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.pcap-stream-state.is-complete {
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+}
+
+.pcap-stream-state.is-incomplete {
+  background: var(--amber-soft);
+  color: #76501a;
+}
+
+.pcap-stream-empty {
+  display: grid;
+  min-height: 110px;
+  place-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .panel-toolbar {
   min-height: 38px;
   justify-content: space-between;
@@ -2400,6 +2659,22 @@ a:focus-visible {
     border: 0;
   }
 
+  .pcap-workspace {
+    height: auto;
+    min-height: calc(100dvh - 68px);
+    border: 0;
+  }
+
+  .pcap-analyzer-layout {
+    display: block;
+    min-height: 0;
+  }
+
+  .pcap-upload-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
   .ruleops-layout {
     display: block;
     min-height: 0;
@@ -2466,8 +2741,40 @@ a:focus-visible {
   }
 
   .input-pane,
-  .result-pane {
+  .result-pane,
+  .pcap-upload-pane,
+  .pcap-result-pane {
     padding: 19px 15px 28px;
+  }
+
+  .pcap-workspace-header {
+    min-height: 68px;
+    padding: 14px 15px;
+  }
+
+  .pcap-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pcap-stream-row--header {
+    display: none;
+  }
+
+  .pcap-stream-row {
+    min-width: 0;
+    grid-template-columns: 42px minmax(48px, 0.7fr) minmax(60px, 0.8fr) minmax(74px, 1fr);
+    gap: 8px;
+  }
+
+  .pcap-stream-endpoints {
+    grid-column: 2 / -1;
+  }
+
+  .pcap-stream-row > span[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--muted);
+    font-size: 8px;
+    font-weight: 500;
   }
 
   .field-row,

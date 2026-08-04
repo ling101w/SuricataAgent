@@ -8,6 +8,7 @@ import difflib
 import hashlib
 import os
 import re
+import tempfile
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from pcap_tcp_analysis import CaptureFormatError, analyze_capture
 from production import PIPELINE_ID, WorkflowConfig, build_workflow
 from poc_http_extractor import PocHttpExtractionError, extract_http_request
 from ruleops import RuleOpsStore
@@ -36,6 +38,7 @@ ARTIFACT_ROOT = Path(
 MAX_HTTP_BYTES = 4 * 1024 * 1024
 MAX_PYTHON_POC_BYTES = 1024 * 1024
 MAX_NEGATIVE_PCAP_BYTES = 16 * 1024 * 1024
+MAX_ANALYSIS_PCAP_BYTES = 16 * 1024 * 1024
 MAX_NEGATIVE_PCAPS = 4
 MAX_RECENT_RUNS = 20
 MAX_PENDING_RUNS = 8
@@ -87,6 +90,13 @@ class EncodedInput(BaseModel):
 
 class NegativePcapInput(BaseModel):
     """浏览器上传的反向流量样本。"""
+
+    filename: str = Field(min_length=1, max_length=160)
+    content_base64: str = Field(max_length=24 * 1024 * 1024)
+
+
+class PcapAnalysisRequest(BaseModel):
+    """单文件 TCP 连接分析输入。"""
 
     filename: str = Field(min_length=1, max_length=160)
     content_base64: str = Field(max_length=24 * 1024 * 1024)
@@ -207,6 +217,17 @@ def _decode_negative_pcaps(
         filename = _safe_filename(value.filename, f"negative-{index}.pcap")
         decoded_files.append((filename, content))
     return decoded_files
+
+
+def _decode_analysis_pcap(value: PcapAnalysisRequest) -> tuple[str, bytes]:
+    try:
+        content = base64.b64decode(value.content_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="PCAP 不是有效的 Base64 数据") from exc
+    if len(content) > MAX_ANALYSIS_PCAP_BYTES:
+        raise HTTPException(status_code=413, detail="PCAP 超过 16 MiB 限制")
+    filename = _safe_filename(value.filename, "capture.pcap")
+    return filename, content
 
 
 def _new_progress() -> list[dict[str, Any]]:
@@ -781,7 +802,55 @@ def runtime_status(response: Response) -> dict[str, Any]:
             "python_poc_bytes": MAX_PYTHON_POC_BYTES,
             "negative_pcap_bytes": MAX_NEGATIVE_PCAP_BYTES,
             "negative_pcap_count": MAX_NEGATIVE_PCAPS,
+            "pcap_analysis_bytes": MAX_ANALYSIS_PCAP_BYTES,
         },
+    }
+
+
+@app.post("/api/pcap/analyze")
+def analyze_uploaded_pcap(
+    payload: PcapAnalysisRequest,
+    response: Response,
+) -> dict[str, Any]:
+    """Return TCP connection statistics for one uploaded PCAP or PCAPNG."""
+    response.headers["Cache-Control"] = "no-store"
+    filename, content = _decode_analysis_pcap(payload)
+    suffix = Path(filename).suffix.casefold()
+    if suffix not in {".pcap", ".pcapng"}:
+        suffix = ".pcap"
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="suricata-rule-lab-",
+            suffix=suffix,
+            delete=False,
+        ) as temporary:
+            temporary.write(content)
+            temporary_path = Path(temporary.name)
+        result = analyze_capture(temporary_path, filename=filename)
+    except CaptureFormatError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_CAPTURE",
+                "message": str(exc),
+            },
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "CAPTURE_ANALYSIS_ERROR",
+                "message": str(exc).strip() or exc.__class__.__name__,
+            },
+        ) from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+    return {
+        "connection_count": result["summary"]["tcp_streams"],
+        **result,
     }
 
 

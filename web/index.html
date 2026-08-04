@@ -26,6 +26,10 @@
           <i data-lucide="network" data-fallback="R"></i>
           RuleOps
         </button>
+        <button class="workspace-switch-button" type="button" data-workspace="pcap">
+          <i data-lucide="waypoints" data-fallback="P"></i>
+          PCAP 分析
+        </button>
       </nav>
 
       <div class="header-actions">
@@ -584,6 +588,87 @@
           <div class="section-heading"><strong id="coverageTitle">Coverage Graph</strong><span>同一 case 联合回放</span></div>
           <div class="coverage-graph-view" id="coverageGraphView"></div>
           <div class="duplicate-groups" id="duplicateGroups"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="pcap-workspace" id="pcapWorkspace" hidden aria-labelledby="pcapTitle">
+      <header class="pcap-workspace-header">
+        <div>
+          <p class="eyebrow">TCP ANALYZER</p>
+          <h2 id="pcapTitle">PCAP TCP 连接分析</h2>
+        </div>
+        <span class="pcap-analysis-status" id="pcapAnalysisStatus">等待文件</span>
+      </header>
+
+      <div class="pcap-analyzer-layout">
+        <section class="pcap-upload-pane" aria-labelledby="pcapUploadTitle">
+          <div class="section-heading">
+            <strong id="pcapUploadTitle">抓包文件</strong>
+            <span>最大 16 MiB</span>
+          </div>
+          <div class="pcap-dropzone" id="pcapDropzone">
+            <div class="pcap-file-icon" aria-hidden="true">
+              <i data-lucide="file-up" data-fallback="+"></i>
+            </div>
+            <strong id="pcapFileName">未选择文件</strong>
+            <span id="pcapFileMeta">PCAP / PCAPNG</span>
+            <button class="secondary-button" id="selectPcapFile" type="button">
+              <i data-lucide="folder-open" data-fallback="+"></i>
+              选择文件
+            </button>
+            <input
+              id="pcapFileInput"
+              type="file"
+              accept=".pcap,.pcapng,application/vnd.tcpdump.pcap"
+              hidden
+            />
+          </div>
+          <div class="pcap-upload-actions">
+            <button
+              class="icon-button"
+              id="clearPcapFile"
+              type="button"
+              title="清空文件"
+              aria-label="清空文件"
+              disabled
+            >
+              <i data-lucide="x" data-fallback="×"></i>
+            </button>
+            <button class="primary-button" id="analyzePcap" type="button" disabled>
+              <i data-lucide="scan-line" data-fallback=">"></i>
+              <span id="analyzePcapLabel">分析 TCP 连接</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="pcap-result-pane" aria-labelledby="pcapResultTitle">
+          <div class="section-heading">
+            <strong id="pcapResultTitle">分析结果</strong>
+            <button
+              class="icon-button"
+              id="exportPcapAnalysis"
+              type="button"
+              title="导出 JSON"
+              aria-label="导出 JSON"
+              hidden
+            >
+              <i data-lucide="download" data-fallback="↓"></i>
+            </button>
+          </div>
+          <div class="pcap-result-empty" id="pcapResultEmpty">暂无分析结果</div>
+          <div id="pcapAnalysisResult" hidden>
+            <div class="pcap-connection-total">
+              <span>TCP 连接</span>
+              <strong id="pcapConnectionCount">0</strong>
+            </div>
+            <div class="pcap-summary-grid" id="pcapSummaryGrid"></div>
+            <div class="pcap-stream-heading">
+              <strong>连接明细</strong>
+              <span id="pcapStreamCount">0 条</span>
+            </div>
+            <div class="pcap-stream-list" id="pcapStreamList"></div>
+          </div>
         </section>
       </div>
     </section>

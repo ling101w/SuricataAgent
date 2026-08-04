@@ -515,6 +515,10 @@ repair/verify split、逐样本矩阵、规则 diff、可追溯结果解释、po
 连接数及握手、FIN、RST 摘要。RuleOps 工作区提供 KB 搜索、文本/逻辑去重记录、
 证据指纹分组和 same-case joint replay Coverage Graph。
 
+顶部的 `PCAP 分析` 工作区也可以脱离规则生成流程，单独上传一个 `.pcap` 或
+`.pcapng` 文件并立即返回 TCP 连接总数与逐连接明细。对应接口为
+`POST /api/pcap/analyze`，不调用模型或 Suricata。
+
 Web 默认只监听本机。PoC 和 HTTP 证据会发送到 `LLM_BASE_URL` 指向的模型服务，
 不要提交不应离开本机的凭据或敏感流量。
 
