@@ -3,6 +3,7 @@
 const elements = {
   generatorWorkspace: document.getElementById("generatorWorkspace"),
   ruleopsWorkspace: document.getElementById("ruleopsWorkspace"),
+  pcapWorkspace: document.getElementById("pcapWorkspace"),
   form: document.getElementById("generationForm"),
   caseId: document.getElementById("caseId"),
   sidStart: document.getElementById("sidStart"),
@@ -87,6 +88,22 @@ const elements = {
   ruleopsRuleList: document.getElementById("ruleopsRuleList"),
   coverageGraphView: document.getElementById("coverageGraphView"),
   duplicateGroups: document.getElementById("duplicateGroups"),
+  pcapAnalysisStatus: document.getElementById("pcapAnalysisStatus"),
+  pcapDropzone: document.getElementById("pcapDropzone"),
+  pcapFileInput: document.getElementById("pcapFileInput"),
+  selectPcapFile: document.getElementById("selectPcapFile"),
+  clearPcapFile: document.getElementById("clearPcapFile"),
+  pcapFileName: document.getElementById("pcapFileName"),
+  pcapFileMeta: document.getElementById("pcapFileMeta"),
+  analyzePcap: document.getElementById("analyzePcap"),
+  analyzePcapLabel: document.getElementById("analyzePcapLabel"),
+  exportPcapAnalysis: document.getElementById("exportPcapAnalysis"),
+  pcapResultEmpty: document.getElementById("pcapResultEmpty"),
+  pcapAnalysisResult: document.getElementById("pcapAnalysisResult"),
+  pcapConnectionCount: document.getElementById("pcapConnectionCount"),
+  pcapSummaryGrid: document.getElementById("pcapSummaryGrid"),
+  pcapStreamCount: document.getElementById("pcapStreamCount"),
+  pcapStreamList: document.getElementById("pcapStreamList"),
   toast: document.getElementById("toast"),
 };
 
@@ -108,6 +125,8 @@ const appState = {
   ruleops: null,
   selectedRuleopsRecord: null,
   ruleopsSearchTimer: null,
+  pcapFile: null,
+  pcapAnalysis: null,
 };
 
 const statusLabels = {
@@ -129,6 +148,7 @@ const artifactLabels = {
   rules: "规则",
   supplemental_rules: "补充规则",
   report: "报告",
+  pcap_analysis: "PCAP TCP 分析",
   mutations: "变体诊断",
   rule_ir: "Rule IR",
   supplemental_rule_ir: "补充 Rule IR",
@@ -224,6 +244,9 @@ function detailText(detail) {
     return detail
       .map((item) => item.msg || item.message || JSON.stringify(item))
       .join("；");
+  }
+  if (detail && typeof detail === "object") {
+    return detail.message || detail.msg || JSON.stringify(detail);
   }
   return "请求失败";
 }
@@ -360,16 +383,19 @@ function switchResultTab(name) {
 }
 
 function switchWorkspace(name) {
-  const ruleops = name === "ruleops";
-  appState.workspace = ruleops ? "ruleops" : "generator";
-  elements.generatorWorkspace.hidden = ruleops;
-  elements.ruleopsWorkspace.hidden = !ruleops;
+  const workspace = ["generator", "ruleops", "pcap"].includes(name)
+    ? name
+    : "generator";
+  appState.workspace = workspace;
+  elements.generatorWorkspace.hidden = workspace !== "generator";
+  elements.ruleopsWorkspace.hidden = workspace !== "ruleops";
+  elements.pcapWorkspace.hidden = workspace !== "pcap";
   document.querySelectorAll("[data-workspace]").forEach((button) => {
     const active = button.dataset.workspace === appState.workspace;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-current", active ? "page" : "false");
   });
-  if (ruleops) loadRuleOps(elements.ruleopsSearch.value.trim());
+  if (workspace === "ruleops") loadRuleOps(elements.ruleopsSearch.value.trim());
 }
 
 function renderExplanation(explanation) {
@@ -765,6 +791,187 @@ function arrayBufferToBase64(buffer) {
   return window.btoa(binary);
 }
 
+function clearPcapResult() {
+  appState.pcapAnalysis = null;
+  elements.pcapResultEmpty.hidden = false;
+  elements.pcapAnalysisResult.hidden = true;
+  elements.exportPcapAnalysis.hidden = true;
+  elements.pcapSummaryGrid.replaceChildren();
+  elements.pcapStreamList.replaceChildren();
+}
+
+function setPcapFile(file) {
+  const limit = appState.runtime?.limits?.pcap_analysis_bytes || 16 * 1024 * 1024;
+  if (!file) return;
+  if (!/\.(?:pcap|pcapng)$/i.test(file.name)) {
+    showToast("请选择 .pcap 或 .pcapng 文件", true);
+    return;
+  }
+  if (file.size > limit) {
+    showToast(`${file.name} 超过 ${formatBytes(limit)} 限制`, true);
+    return;
+  }
+  appState.pcapFile = file;
+  elements.pcapFileInput.value = "";
+  elements.pcapFileName.textContent = file.name;
+  elements.pcapFileMeta.textContent = `${formatBytes(file.size)} · ${
+    file.name.toLowerCase().endsWith(".pcapng") ? "PCAPNG" : "PCAP"
+  }`;
+  elements.pcapDropzone.classList.add("has-file");
+  elements.analyzePcap.disabled = false;
+  elements.clearPcapFile.disabled = false;
+  elements.pcapAnalysisStatus.textContent = "文件就绪";
+  clearPcapResult();
+}
+
+function resetPcapAnalyzer() {
+  appState.pcapFile = null;
+  elements.pcapFileInput.value = "";
+  elements.pcapFileName.textContent = "未选择文件";
+  elements.pcapFileMeta.textContent = "PCAP / PCAPNG";
+  elements.pcapDropzone.classList.remove("has-file", "is-dragging");
+  elements.analyzePcap.disabled = true;
+  elements.clearPcapFile.disabled = true;
+  elements.pcapAnalysisStatus.textContent = "等待文件";
+  clearPcapResult();
+}
+
+function formatCaptureDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return "—";
+  if (value < 1) return `${Math.round(value * 1000)} ms`;
+  return `${value.toFixed(value < 10 ? 3 : 1)} s`;
+}
+
+function pcapCloseLabel(stream) {
+  if (stream.bidirectional_fin) return "双向 FIN";
+  if (stream.seen_rst) return "RST";
+  const labels = {
+    one_sided_fin: "单向 FIN",
+    not_observed: "未观察到关闭",
+  };
+  return labels[stream.close_type] || stream.close_type || "—";
+}
+
+function renderPcapAnalysis(result) {
+  appState.pcapAnalysis = result;
+  const summary = result.summary || {};
+  const streams = Array.isArray(result.streams) ? result.streams : [];
+  elements.pcapResultEmpty.hidden = true;
+  elements.pcapAnalysisResult.hidden = false;
+  elements.exportPcapAnalysis.hidden = false;
+  elements.pcapConnectionCount.textContent = String(result.connection_count ?? 0);
+  elements.pcapAnalysisStatus.textContent = "分析完成";
+  elements.pcapSummaryGrid.replaceChildren();
+  [
+    ["完整握手", summary.complete_handshakes],
+    ["不完整 / 中途", summary.incomplete_or_midstream],
+    ["TCP 包", summary.tcp_packets],
+    ["双向 FIN", summary.bidirectional_fin_streams],
+    ["RST", summary.reset_streams],
+    ["抓包时长", formatCaptureDuration(summary.capture_duration_seconds)],
+  ].forEach(([label, value]) => appendMetric(
+    elements.pcapSummaryGrid,
+    label,
+    String(value ?? 0),
+  ));
+
+  elements.pcapStreamCount.textContent = `${streams.length} 条`;
+  elements.pcapStreamList.replaceChildren();
+  if (!streams.length) {
+    const empty = document.createElement("div");
+    empty.className = "pcap-stream-empty";
+    empty.textContent = "未发现 TCP 连接";
+    elements.pcapStreamList.append(empty);
+    refreshIcons();
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "pcap-stream-row pcap-stream-row--header";
+  ["ID", "端点", "包", "载荷", "握手", "关闭"].forEach((label) => {
+    const cell = document.createElement("span");
+    cell.textContent = label;
+    header.append(cell);
+  });
+  elements.pcapStreamList.append(header);
+
+  streams.forEach((stream) => {
+    const row = document.createElement("div");
+    row.className = "pcap-stream-row";
+    const id = document.createElement("code");
+    id.textContent = `#${stream.stream_id}`;
+    const endpoints = document.createElement("div");
+    endpoints.className = "pcap-stream-endpoints";
+    const client = document.createElement("strong");
+    client.textContent = stream.client || "unknown";
+    const server = document.createElement("span");
+    server.textContent = `→ ${stream.server || "unknown"}`;
+    endpoints.append(client, server);
+    const packets = document.createElement("span");
+    packets.dataset.label = "包";
+    packets.textContent = String(stream.packets ?? 0);
+    const payload = document.createElement("span");
+    payload.dataset.label = "载荷";
+    payload.textContent = formatBytes(stream.payload_bytes || 0);
+    const handshake = document.createElement("span");
+    handshake.dataset.label = "握手";
+    handshake.className = `pcap-stream-state ${
+      stream.handshake_complete ? "is-complete" : "is-incomplete"
+    }`;
+    handshake.textContent = stream.handshake_complete ? "完整" : "不完整";
+    const close = document.createElement("span");
+    close.dataset.label = "关闭";
+    close.textContent = pcapCloseLabel(stream);
+    row.append(id, endpoints, packets, payload, handshake, close);
+    elements.pcapStreamList.append(row);
+  });
+  refreshIcons();
+}
+
+async function analyzeSelectedPcap() {
+  const file = appState.pcapFile;
+  if (!file) return;
+  elements.analyzePcap.disabled = true;
+  elements.clearPcapFile.disabled = true;
+  elements.analyzePcapLabel.textContent = "正在分析";
+  elements.pcapAnalysisStatus.textContent = "正在分析";
+  try {
+    const result = await apiFetch("/api/pcap/analyze", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: file.name,
+        content_base64: arrayBufferToBase64(await file.arrayBuffer()),
+      }),
+    });
+    renderPcapAnalysis(result);
+    showToast(`发现 ${result.connection_count} 个 TCP 连接`);
+  } catch (error) {
+    clearPcapResult();
+    elements.pcapAnalysisStatus.textContent = "分析失败";
+    showToast(error.message, true);
+  } finally {
+    elements.analyzePcap.disabled = false;
+    elements.clearPcapFile.disabled = false;
+    elements.analyzePcapLabel.textContent = "分析 TCP 连接";
+  }
+}
+
+function exportPcapAnalysis() {
+  if (!appState.pcapAnalysis) return;
+  const blob = new Blob(
+    [JSON.stringify(appState.pcapAnalysis, null, 2)],
+    { type: "application/json" },
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const sourceName = appState.pcapAnalysis.file?.name || "capture.pcap";
+  link.href = url;
+  link.download = `${sourceName.replace(/\.(?:pcap|pcapng)$/i, "")}-tcp-analysis.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 async function encodedHttpInput(kind) {
   const controls = sourceElements(kind);
   const file = appState.rawFiles[kind];
@@ -866,6 +1073,7 @@ function initialRunView(maxAttempts) {
     rules: null,
     validation: null,
     sample_matrix: [],
+    pcap_analysis: null,
     mutation_skips: [],
     final_judgment: null,
     rule_ir: null,
@@ -1183,6 +1391,7 @@ function mergeSampleResults(job) {
 function renderSampleMatrix(job) {
   const samples = mergeSampleResults(job);
   const validation = job.validation || {};
+  const pcapSummary = job.pcap_analysis?.summary || {};
   const falsePositiveCount = finiteNumber(validation.false_positive_count);
   const positiveCount = samples.filter((item) => item.expected === "alert").length;
   const negativeCount = samples.filter((item) => item.expected === "no_alert").length;
@@ -1209,6 +1418,28 @@ function renderSampleMatrix(job) {
     "误报",
     falsePositiveCount === null ? "—" : String(falsePositiveCount),
     falsePositiveCount === null ? "" : falsePositiveCount === 0 ? "is-good" : "is-warning",
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "PCAP 数量",
+    String(pcapSummary.pcap_count ?? samples.length),
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "TCP 连接",
+    String(pcapSummary.tcp_connections ?? 0),
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "多连接 PCAP",
+    String(pcapSummary.multi_connection_pcaps ?? 0),
+    Number(pcapSummary.multi_connection_pcaps || 0) > 0 ? "is-warning" : "",
+  );
+  appendMetric(
+    elements.matrixOverview,
+    "分析失败",
+    String(pcapSummary.failed_pcaps ?? 0),
+    Number(pcapSummary.failed_pcaps || 0) > 0 ? "is-warning" : "is-good",
   );
 
   const mutationSkips = Array.isArray(job.mutation_skips) ? job.mutation_skips : [];
@@ -1239,7 +1470,7 @@ function renderSampleMatrix(job) {
 
   const header = document.createElement("div");
   header.className = "matrix-row matrix-row--header";
-  ["样本", "预期", "实际", "结果"].forEach((label) => {
+  ["样本", "预期", "TCP 连接", "实际", "结果"].forEach((label) => {
     const cell = document.createElement("span");
     cell.textContent = label;
     header.append(cell);
@@ -1287,6 +1518,25 @@ function renderSampleMatrix(job) {
     }`;
     expected.textContent = expectedLabel(sample.expected);
 
+    const tcp = document.createElement("div");
+    tcp.className = `sample-tcp${sample.tcp?.analysis_ok === false ? " is-error" : ""}`;
+    const connectionCount = sample.tcp?.connection_count;
+    const tcpCount = document.createElement("strong");
+    tcpCount.textContent =
+      Number.isFinite(Number(connectionCount)) && connectionCount !== null
+        ? `${connectionCount} 个`
+        : "分析失败";
+    const tcpDetail = document.createElement("span");
+    if (connectionCount === null || connectionCount === undefined) {
+      tcpDetail.textContent = sample.tcp?.error || "暂无统计";
+      tcp.title = tcpDetail.textContent;
+    } else {
+      tcpDetail.textContent = `握手 ${sample.tcp.complete_handshakes || 0} · FIN ${
+        sample.tcp.bidirectional_fin_streams || 0
+      } · RST ${sample.tcp.reset_streams || 0}`;
+    }
+    tcp.append(tcpCount, tcpDetail);
+
     const actual = document.createElement("span");
     actual.className = "sample-actual";
     const matchedSids = Array.isArray(sample.matched_sids) ? sample.matched_sids : [];
@@ -1307,7 +1557,7 @@ function renderSampleMatrix(job) {
     passed.textContent =
       sample.passed === true ? "通过" : sample.passed === false ? "失败" : "等待";
 
-    row.append(identity, expected, actual, passed);
+    row.append(identity, expected, tcp, actual, passed);
     elements.sampleMatrix.append(row);
   });
 }
@@ -1946,6 +2196,28 @@ function resetInputs() {
 function bindEvents() {
   document.querySelectorAll("[data-workspace]").forEach((button) => {
     button.addEventListener("click", () => switchWorkspace(button.dataset.workspace));
+  });
+  elements.selectPcapFile.addEventListener("click", () => elements.pcapFileInput.click());
+  elements.pcapFileInput.addEventListener("change", (event) => {
+    if (event.target.files[0]) setPcapFile(event.target.files[0]);
+  });
+  elements.clearPcapFile.addEventListener("click", resetPcapAnalyzer);
+  elements.analyzePcap.addEventListener("click", analyzeSelectedPcap);
+  elements.exportPcapAnalysis.addEventListener("click", exportPcapAnalysis);
+  ["dragenter", "dragover"].forEach((eventName) => {
+    elements.pcapDropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      elements.pcapDropzone.classList.add("is-dragging");
+    });
+  });
+  ["dragleave", "drop"].forEach((eventName) => {
+    elements.pcapDropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      elements.pcapDropzone.classList.remove("is-dragging");
+    });
+  });
+  elements.pcapDropzone.addEventListener("drop", (event) => {
+    if (event.dataTransfer.files[0]) setPcapFile(event.dataTransfer.files[0]);
   });
   document.querySelectorAll("[data-input-tab]").forEach((button) => {
     button.addEventListener("click", () => switchInputTab(button.dataset.inputTab));

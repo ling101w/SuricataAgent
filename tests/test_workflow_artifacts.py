@@ -382,6 +382,41 @@ def test_web_artifact_catalog_exposes_python_poc_extraction_files(
             web_app._jobs.pop(job_id, None)
 
 
+def test_web_artifact_catalog_exposes_pcap_analysis(tmp_path: Path) -> None:
+    import web_app
+
+    output_dir = tmp_path / "artifacts"
+    output_dir.mkdir()
+    analysis_path = output_dir / "pcap-analysis.json"
+    analysis_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "summary": {"pcap_count": 1, "tcp_connections": 2},
+                "pcaps": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    job_id = "pcap-analysis-artifact-contract"
+    job = {"job_id": job_id, "output_dir": output_dir}
+    with web_app._jobs_lock:
+        web_app._jobs[job_id] = job
+        web_app._collect_artifacts(job)
+    try:
+        assert set(job["artifact_paths"]) == {"pcap_analysis"}
+        assert {item["kind"] for item in job["artifact_dtos"]} == {
+            "pcap_analysis"
+        }
+        response = web_app.download_artifact(job_id, "pcap_analysis")
+        assert Path(response.path).name == "pcap-analysis.json"
+        assert response.media_type == "application/json"
+    finally:
+        with web_app._jobs_lock:
+            web_app._jobs.pop(job_id, None)
+
+
 def test_invalid_strategy_catalog_returns_structured_preflight_failure(
     tmp_path: Path,
 ) -> None:

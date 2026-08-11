@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 from direct_workflow import WorkflowConfig, build_workflow
+from generate_pcap import generate_pcap
 from traffic_cases import TrafficSample, TrafficSampleList
 
 
@@ -84,8 +86,8 @@ def test_e_pipeline_keeps_verify_samples_out_of_repair_and_indexes_final_rule(
     tmp_path: Path,
 ) -> None:
     pcap = tmp_path / "sample.pcap"
-    pcap.write_bytes(b"pcap")
     request = b"GET /download?path=../../etc/passwd HTTP/1.1\r\nHost: x\r\n\r\n"
+    generate_pcap(str(pcap), request, b"HTTP/1.1 200 OK\r\n\r\n")
     samples = TrafficSampleList(
         [
             TrafficSample("positive-original", "alert", "original", "original", pcap, request),
@@ -142,10 +144,17 @@ def test_e_pipeline_keeps_verify_samples_out_of_repair_and_indexes_final_rule(
         "repair",
         "verify_only",
     }
+    assert {item["tcp"]["connection_count"] for item in state["sample_matrix"]} == {1}
+    assert state["pcap_analysis"]["summary"]["tcp_connections"] == len(samples)
     assert (output / "generated.rules").is_file()
     assert (output / "generated.rule-ir.json").is_file()
     assert (output / "coverage-graph.json").is_file()
+    assert (output / "pcap-analysis.json").is_file()
     assert (output / "validation-report.json").is_file()
+    report = json.loads(
+        (output / "validation-report.json").read_text(encoding="utf-8")
+    )
+    assert report["pcap_analysis"]["summary"]["tcp_connections"] == len(samples)
 
 
 def test_e_pipeline_extracts_http_from_python_poc_before_generation(
