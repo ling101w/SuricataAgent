@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "suricata-agent"
+version = "0.1.0"
+description = "Evidence-driven Suricata rule generation and verification"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "langchain>=1.2,<2",
+  "langchain-openai>=1.1,<2",
+  "langgraph>=1.1,<2",
+  "python-dotenv>=1,<2",
+  "scapy>=2.7,<3",
+  "uvicorn>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+suricata-agent = "suricata_agent.cli:main"
+
+[tool.setuptools]
+py-modules = [
+  "benchmark_runner", "coverage_graph", "detection_strategy", "diagnosis",
+  "direct_workflow", "evidence_fingerprint", "final_judge", "generate_pcap",
+  "generate_rules", "generate_tools", "generation_bridge", "main",
+  "pcap_tcp_analysis", "poc_http_extractor", "production",
+  "repair_constraints", "rule_compiler", "rule_ir", "rule_knowledge",
+  "rule_library", "ruleops", "semantic_generation",
+  "suricata_verify_benchmark", "traffic_cases", "validate_rules", "web_app",
+]
+
+[tool.setuptools.packages.find]
+include = ["suricata_agent*"]
