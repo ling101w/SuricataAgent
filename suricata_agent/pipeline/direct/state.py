@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
-from generate_pcap import PcapConfig
-from traffic_cases import TrafficSample
-from validate_rules import RuleValidationResult, SuricataRuntimeCheck
+from suricata_agent.services.suricata import RuleValidationResult, SuricataRuntimeCheck
+from suricata_agent.traffic.pcap import PcapConfig
+from suricata_agent.traffic.cases import TrafficSample
 
 
 class ChatModel(Protocol):

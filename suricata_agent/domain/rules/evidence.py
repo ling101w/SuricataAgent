@@ -10,7 +10,7 @@ from collections.abc import Iterable, Sequence
 from typing import Protocol, TypeAlias
 from urllib.parse import unquote
 
-from rule_knowledge import is_structural_match
+from .knowledge import is_structural_match
 
 
 EvidenceAtom: TypeAlias = tuple[str, str]

@@ -10,7 +10,7 @@ from xml.etree import ElementTree
 
 import pytest
 
-import traffic_cases
+from suricata_agent.traffic import cases as traffic_cases
 from rule_compiler import SemanticRequestChange, SemanticTestcase
 from traffic_cases import (
     TrafficDerivation,

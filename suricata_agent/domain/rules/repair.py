@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from rule_ir import RuleIRParseError, parse_suricata_rule
+from .ir import RuleIRParseError, parse_suricata_rule
 
 
 @dataclass(frozen=True, slots=True)

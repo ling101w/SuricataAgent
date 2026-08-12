@@ -10,9 +10,9 @@ from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 from urllib.parse import unquote
 
-from coverage_graph import CoverageAnalysis
-from evidence_fingerprint import evidence_set
-from rule_ir import RuleIR
+from .coverage import CoverageAnalysis
+from .evidence import evidence_set
+from .ir import RuleIR
 
 
 class StrategyModel(Protocol):

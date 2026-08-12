@@ -13,10 +13,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from evidence_fingerprint import evidence_fingerprint_id, rule_logic_fingerprint_id
-from coverage_graph import analyze_rule_coverage
-from rule_ir import parse_suricata_rule, rule_ir_to_dict
-from validate_rules import RulePolicy
+from suricata_agent.domain.rules.coverage import analyze_rule_coverage
+from suricata_agent.domain.rules.evidence import (
+    evidence_fingerprint_id,
+    rule_logic_fingerprint_id,
+)
+from suricata_agent.domain.rules.ir import parse_suricata_rule, rule_ir_to_dict
+
+from .suricata import RulePolicy
 
 
 SCHEMA_VERSION = 1

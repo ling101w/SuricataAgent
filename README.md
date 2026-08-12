@@ -46,6 +46,15 @@ python web_app.py
 python benchmark_runner.py --mode full --output-dir benchmark-artifacts
 ```
 
+安装项目后优先使用稳定命令入口：
+
+```powershell
+suricata-agent case.json --output-dir artifacts --max-attempts 3
+suricata-agent-bridge --help
+```
+
+Benchmark 依赖仓库中的数据集和冻结工件，继续从仓库根目录运行。根目录脚本保留为兼容入口；可复用实现位于 `suricata_agent/` 包内。
+
 CLI、Web API 和 Benchmark 都只从 `production.py` 导入生产契约，运行
 `E-direct-repair-v1`，并在报告中写入 `pipeline_id`。旧 `main.build_workflow` 保留用于 B/C
 冻结消融复现，不再是默认产品路径。

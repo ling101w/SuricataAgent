@@ -22,6 +22,7 @@ dev = ["pytest>=8,<9"]
 
 [project.scripts]
 suricata-agent = "suricata_agent.cli:main"
+suricata-agent-bridge = "suricata_agent.integrations.generation_bridge:main"
 
 [tool.setuptools]
 py-modules = [

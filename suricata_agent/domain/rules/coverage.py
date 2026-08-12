@@ -10,9 +10,9 @@ import json
 import re
 from typing import Any, Literal
 
-from evidence_fingerprint import evidence_fingerprint_id, rule_logic_fingerprint_id
-from rule_ir import RuleIR, parse_suricata_rules
-from rule_knowledge import DetectionScope
+from .evidence import evidence_fingerprint_id, rule_logic_fingerprint_id
+from .ir import RuleIR, parse_suricata_rules
+from .knowledge import DetectionScope
 
 
 RelationKind = Literal[

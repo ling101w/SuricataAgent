@@ -178,6 +178,24 @@ def test_ambiguous_transfer_encoding_body_is_not_rewritten() -> None:
     )
 
 
+def test_fallback_negative_is_added_when_no_semantic_negative_can_be_derived() -> None:
+    request = b"GET /health HTTP/1.1\r\nHost: example.invalid\r\n\r\n"
+    cases = {
+        name: (expected, raw_request, mss)
+        for name, expected, _reason, raw_request, _response, mss in derive_http_cases(
+            request,
+            b"",
+        )
+    }
+
+    expected, raw_request, _mss = cases["negative-different-endpoint-fallback"]
+    assert expected == "no_alert"
+    parsed = parse_http_request(raw_request)
+    assert parsed.method == "GET"
+    assert parsed.target == "/not-vulnerable"
+    assert parsed.headers == parse_http_request(request).headers
+
+
 def test_compressed_body_is_not_treated_as_plain_json() -> None:
     compressed_body = b"not-really-gzip-{\"path\":\"../../etc/passwd\"}"
     request = (
