@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any, Literal, Sequence
 
-from rule_knowledge import (
+from .knowledge import (
     DetectionScope,
     KNOWN_BUFFERS,
     REQUEST_BUFFERS,

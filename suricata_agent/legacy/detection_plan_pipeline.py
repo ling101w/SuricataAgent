@@ -14,42 +14,45 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from detection_strategy import retrieve_strategy_clusters, validate_strategy_catalog
-from diagnosis import diagnose_candidate
-from evidence_fingerprint import (
-    evidence_fingerprint,
-    evidence_fingerprint_id,
-    novel_evidence,
-)
-from generate_pcap import PcapConfig
-from generate_rules import ChatModel, extract_detection_features
-from generate_tools import create_chat_model
-from final_judge import FinalJudgment, judge_passing_candidates
-from rule_knowledge import (
-    CANDIDATE_ROLE_GUIDANCE,
-    FALSE_POSITIVE_PENALTY,
-    PCRE_PENALTY,
-    POSITIVE_COVERAGE_WEIGHT,
-)
-from rule_ir import parse_suricata_rule, rule_ir_to_dict
-from rule_compiler import (
+from suricata_agent.domain.rules.compiler import (
     DetectionPlan,
     RuleLintError,
     compile_candidate,
     parse_detection_json,
 )
-from traffic_cases import (
-    TrafficSample,
-    build_traffic_matrix,
-    materialize_semantic_testcases,
+from suricata_agent.domain.rules.diagnosis import diagnose_candidate
+from suricata_agent.domain.rules.evidence import (
+    evidence_fingerprint,
+    evidence_fingerprint_id,
+    novel_evidence,
 )
-from validate_rules import (
+from suricata_agent.domain.rules.ir import parse_suricata_rule, rule_ir_to_dict
+from suricata_agent.domain.rules.knowledge import (
+    CANDIDATE_ROLE_GUIDANCE,
+    FALSE_POSITIVE_PENALTY,
+    PCRE_PENALTY,
+    POSITIVE_COVERAGE_WEIGHT,
+)
+from suricata_agent.domain.rules.strategy import (
+    retrieve_strategy_clusters,
+    validate_strategy_catalog,
+)
+from suricata_agent.legacy.final_judge import FinalJudgment, judge_passing_candidates
+from suricata_agent.legacy.generate_rules import ChatModel, extract_detection_features
+from suricata_agent.services.llm import create_chat_model
+from suricata_agent.services.suricata import (
     RulePolicy,
     RuleValidationResult,
     SuricataRuntimeCheck,
     check_suricata_runtime,
     validate_rule_matrix,
 )
+from suricata_agent.traffic.cases import (
+    TrafficSample,
+    build_traffic_matrix,
+    materialize_semantic_testcases,
+)
+from suricata_agent.traffic.pcap import PcapConfig
 
 
 class AttemptRecord(TypedDict, total=False):

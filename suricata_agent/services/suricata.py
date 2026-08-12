@@ -589,7 +589,7 @@ def _sample_request_line(sample: object) -> str | None:
 def _rule_scope_contract(rules: str) -> dict[int, tuple[str, str]]:
     """返回 SID 对应的方向和 detection_scope，供样本适用域筛选。"""
     try:
-        from rule_ir import parse_suricata_rules
+        from suricata_agent.domain.rules.ir import parse_suricata_rules
 
         return {
             rule.sid: (rule.direction, rule.detection_scope)

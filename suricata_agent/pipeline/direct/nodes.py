@@ -15,14 +15,12 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from generate_tools import create_chat_model
-from pcap_tcp_analysis import analyze_sample_pcaps, matrix_tcp_summary
-from poc_http_extractor import PocHttpExtractionError, extract_http_request
-from repair_constraints import RepairConstraints, accept_repair, compare_repair
-from rule_ir import parse_suricata_rule, rule_ir_to_dict
-from ruleops import RuleOpsStore
-from traffic_cases import TrafficSample, build_traffic_matrix
-from validate_rules import (
+from suricata_agent.domain.rules.ir import parse_suricata_rule, rule_ir_to_dict
+from suricata_agent.domain.rules.repair import RepairConstraints, accept_repair, compare_repair
+from suricata_agent.integrations.poc_http import PocHttpExtractionError, extract_http_request
+from suricata_agent.services.llm import create_chat_model
+from suricata_agent.services.ruleops import RuleOpsStore
+from suricata_agent.services.suricata import (
     RulePolicy,
     RuleValidationResult,
     SuricataRuntimeCheck,
@@ -30,6 +28,8 @@ from validate_rules import (
     clean_rule_text,
     validate_rule_matrix,
 )
+from suricata_agent.traffic.analysis import analyze_sample_pcaps, matrix_tcp_summary
+from suricata_agent.traffic.cases import TrafficSample, build_traffic_matrix
 
 from .artifacts import (
     atomic_bytes,

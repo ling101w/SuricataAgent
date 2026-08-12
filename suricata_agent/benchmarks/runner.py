@@ -10,12 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from generate_tools import create_chat_model
 from production import PIPELINE_ID, WorkflowConfig, run_generation
-from traffic_cases import derive_http_cases_with_diagnostics
+from suricata_agent.services.llm import create_chat_model
+from suricata_agent.traffic.cases import derive_http_cases_with_diagnostics
 
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = PROJECT_DIR / "benchmarks" / "matrix.json"
 
 

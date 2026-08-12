@@ -9,8 +9,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from traffic_cases import TrafficSample
-from validate_rules import RuleValidationResult
+from suricata_agent.services.suricata import RuleValidationResult
+from suricata_agent.traffic.cases import TrafficSample
 
 
 def atomic_text(path: Path, value: str) -> None:
